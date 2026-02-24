@@ -150,6 +150,8 @@ jobs:
                     --gimp-app /Applications/GIMP.app \
                     --gmic-version "$GMIC_VERSION" \
                     --gimp-version "$GIMP_VERSION" \
+                    --workdir "$GITHUB_WORKSPACE/work" \
+                    --outdir "$GITHUB_WORKSPACE/dist" \
                     --skip-ports \
                     --skip-gimp3-devel
 
@@ -158,7 +160,7 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                   name: gmic-qt-macos-${{ matrix.arch }}
-                  path: dist/gmic_gimp_qt-gimp3-macos-*-bundled.zip
+                  path: ${{ github.workspace }}/dist/gmic_gimp_qt-gimp3-macos-*-bundled.zip
                   if-no-files-found: error
 
     # ── Release job ─────────────────────────────────────────────────
