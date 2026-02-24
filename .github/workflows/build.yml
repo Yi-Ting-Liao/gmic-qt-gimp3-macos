@@ -49,9 +49,9 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - runner: macos-13
+                    - runner: macos-15-intel
                       arch: x86_64
-                      macports_os: 13-Ventura
+                      macports_os: 15-Sequoia
                     - runner: macos-14
                       arch: arm64
                       macports_os: 14-Sonoma
