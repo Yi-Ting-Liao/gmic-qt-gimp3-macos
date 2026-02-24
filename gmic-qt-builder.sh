@@ -1,110 +1,203 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# ── Resolve script/project directories early ──────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# ── Defaults (all overridable via env vars or CLI flags) ──────────────────
 GIMP_APP="${GIMP_APP:-/Applications/GIMP.app}"
 GMIC_VERSION="${GMIC_VERSION:-3.7.0}"
-WORKDIR="${WORKDIR:-${ROOT_DIR}/work}"
-OUTDIR="${OUTDIR:-${ROOT_DIR}/dist}"
+WORKDIR="${WORKDIR:-${PROJECT_DIR}/work}"
+OUTDIR="${OUTDIR:-${PROJECT_DIR}/dist}"
 MACPORTS_PREFIX="${MACPORTS_PREFIX:-/opt/local}"
 QT_PREFIX="${QT_PREFIX:-${MACPORTS_PREFIX}/libexec/qt5}"
-GIMP_HEADERS_DIR="${MACPORTS_PREFIX}/include"
+GIMP_HEADERS_DIR="${GIMP_HEADERS_DIR:-${MACPORTS_PREFIX}/include}"
+GIMP_API_VERSION="${GIMP_API_VERSION:-3.0}"
 SKIP_PORTS=0
 SKIP_GIMP3_DEVEL=0
 INSTALL_PLUGIN=0
+CLEAN=0
 
+# ── Logging helpers ───────────────────────────────────────────────────────
+log()  { echo "[gmic-qt-builder] $*" >&2; }
+warn() { echo "[gmic-qt-builder] WARNING: $*" >&2; }
+die()  { echo "[gmic-qt-builder] ERROR: $*" >&2; exit 1; }
+
+# ── Cleanup on error ─────────────────────────────────────────────────────
+trap 'log "Build failed."' ERR
+
+# ── Usage ─────────────────────────────────────────────────────────────────
 usage() {
-  cat <<'USAGE'
-Usage: build_gmic_qt_gimp3_macos.sh [options]
+  cat <<USAGE
+Usage: $(basename "$0") [options]
 
 Options:
   --gimp-app <path>       Path to GIMP.app (default: /Applications/GIMP.app)
   --gmic-version <ver>    G'MIC version (default: 3.7.0)
   --workdir <path>        Working directory
   --outdir <path>         Output directory for bundle/zip
+  --macports-prefix <p>   MacPorts prefix (default: /opt/local)
   --skip-ports            Do not install MacPorts deps
   --skip-gimp3-devel      Do not attempt to install gimp3-devel (use source headers fallback)
   --install               Also copy bundle to user plugin directory
+  --clean                 Remove workdir and build artifacts before building
   -h, --help              Show help
 USAGE
 }
 
+# ── Argument parsing ─────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --gimp-app) GIMP_APP="$2"; shift 2;;
     --gmic-version) GMIC_VERSION="$2"; shift 2;;
     --workdir) WORKDIR="$2"; shift 2;;
     --outdir) OUTDIR="$2"; shift 2;;
+    --macports-prefix) MACPORTS_PREFIX="$2"; QT_PREFIX="${MACPORTS_PREFIX}/libexec/qt5"; shift 2;;
     --skip-ports) SKIP_PORTS=1; shift;;
     --skip-gimp3-devel) SKIP_GIMP3_DEVEL=1; shift;;
     --install) INSTALL_PLUGIN=1; shift;;
+    --clean) CLEAN=1; shift;;
     -h|--help) usage; exit 0;;
-    *) echo "Unknown option: $1"; usage; exit 1;;
+    *) echo "Unknown option: $1" >&2; usage; exit 1;;
   esac
 done
 
+# ── Helper functions ──────────────────────────────────────────────────────
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Missing command: $1" >&2
-    exit 1
+    die "Missing command: $1"
   fi
 }
 
-# Detect GIMP version from Info.plist (headless-safe) or gimp --version (fallback)
+# Detect GIMP version from Info.plist (headless-safe) or gimp --version (fallback).
+# Arguments: $1 = path to GIMP.app, $2 = path to gimp binary (optional)
 detect_gimp_version() {
-  local plist="$GIMP_APP/Contents/Info.plist"
+  local app="$1"
+  local bin="${2:-}"
+  local plist="$app/Contents/Info.plist"
   local ver=""
   # Method 1: PlistBuddy (works headless, no display needed)
   if [[ -f "$plist" ]] && command -v /usr/libexec/PlistBuddy >/dev/null 2>&1; then
     ver="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null || true)"
   fi
   # Method 2: gimp --version (may fail in headless CI)
-  if [[ -z "$ver" && -x "$GIMP_BIN" ]]; then
-    ver="$("$GIMP_BIN" --version 2>/dev/null | awk '/version/ {print $NF; exit}' || true)"
+  if [[ -z "$ver" && -n "$bin" && -x "$bin" ]]; then
+    ver="$("$bin" --version 2>/dev/null | awk '/version/ {print $NF; exit}' || true)"
   fi
   # No version detected — cannot continue safely
   if [[ -z "$ver" ]]; then
-    echo "Error: Could not detect GIMP version from $GIMP_APP" >&2
-    echo "Ensure GIMP.app has a valid Info.plist with CFBundleShortVersionString." >&2
-    exit 1
+    die "Could not detect GIMP version from $app. Ensure Info.plist has CFBundleShortVersionString."
   fi
   echo "$ver"
 }
 
-if [[ ! -d "$GIMP_APP" ]]; then
-  echo "GIMP.app not found at: $GIMP_APP" >&2
-  exit 1
-fi
+# Resolve a dylib path by glob pattern. Returns the first match.
+# Arguments: $1 = directory, $2 = glob pattern (e.g. "libpng*.dylib")
+find_dylib() {
+  local dir="$1"
+  local pattern="$2"
+  local result
+  result="$(find "$dir" -maxdepth 1 -name "$pattern" -not -name '*-*' 2>/dev/null | head -1)"
+  if [[ -z "$result" ]]; then
+    die "Could not find dylib matching '$pattern' in $dir"
+  fi
+  echo "$result"
+}
+
+# Generate gimpversion.h from GIMP source tree.
+# Arguments: $1 = GIMP source dir, $2 = destination header dir, $3 = GIMP version string
+generate_gimpversion_h() {
+  local gimp_src_dir="$1"
+  local header_dst="$2"
+  local src_version="$3"
+  local template="$gimp_src_dir/libgimpbase/gimpversion.h.in"
+
+  if [[ ! -f "$template" ]]; then
+    warn "gimpversion.h.in template not found at $template; skipping generation."
+    return
+  fi
+
+  local ver_major ver_minor ver_micro_rest ver_micro api_version
+  IFS='.' read -r ver_major ver_minor ver_micro_rest <<< "$src_version"
+  ver_micro="$(echo "$ver_micro_rest" | sed 's/[^0-9].*$//')"
+  ver_major="${ver_major:-3}"
+  ver_minor="${ver_minor:-0}"
+  ver_micro="${ver_micro:-0}"
+  api_version="${ver_major}.0"
+
+  cat > "$header_dst/libgimpbase/gimpversion.h" <<EOF_GIMPVERSION
+#ifndef __GIMP_VERSION_H__
+#define __GIMP_VERSION_H__
+
+/* gimpversion.h.in -> gimpversion.h
+ * This file is configured by the build script.
+ */
+#if !defined (__GIMP_BASE_H_INSIDE__) && !defined (GIMP_BASE_COMPILATION)
+#error "Only <libgimpbase/gimpbase.h> can be included directly."
+#endif
+
+G_BEGIN_DECLS
+
+#define GIMP_MAJOR_VERSION                              (${ver_major})
+#define GIMP_MINOR_VERSION                              (${ver_minor})
+#define GIMP_MICRO_VERSION                              (${ver_micro})
+#define GIMP_VERSION                                    "${src_version}"
+#define GIMP_API_VERSION                                "${api_version}"
+
+#define GIMP_CHECK_VERSION(major, minor, micro) \\
+    (GIMP_MAJOR_VERSION > (major) || \\
+     (GIMP_MAJOR_VERSION == (major) && GIMP_MINOR_VERSION > (minor)) || \\
+     (GIMP_MAJOR_VERSION == (major) && GIMP_MINOR_VERSION == (minor) && \\
+      GIMP_MICRO_VERSION >= (micro)))
+
+G_END_DECLS
+
+#endif /* __GIMP_VERSION_H__ */
+EOF_GIMPVERSION
+}
+
+# ── Validate GIMP.app ────────────────────────────────────────────────────
+[[ -d "$GIMP_APP" ]] || die "GIMP.app not found at: $GIMP_APP"
 
 GIMP_BIN="$GIMP_APP/Contents/MacOS/gimp"
-if [[ ! -x "$GIMP_BIN" ]]; then
-  echo "GIMP binary not found: $GIMP_BIN" >&2
-  exit 1
+[[ -x "$GIMP_BIN" ]] || die "GIMP binary not found: $GIMP_BIN"
+
+# Cache GIMP version (called once, reused everywhere)
+GIMP_APP_VERSION="$(detect_gimp_version "$GIMP_APP" "$GIMP_BIN")"
+log "Detected GIMP version: $GIMP_APP_VERSION"
+
+# ── Clean mode ──────────────────────────────────────────────────────────
+if [[ $CLEAN -eq 1 ]]; then
+  log "Cleaning work and build directories..."
+  rm -rf "$WORKDIR" "$OUTDIR"
 fi
 
 mkdir -p "$WORKDIR" "$OUTDIR"
 
+# ── Architecture detection ────────────────────────────────────────────────
 GIMP_ARCH="$(file "$GIMP_BIN")"
 HOST_ARCH="$(uname -m)"
+
 if echo "$GIMP_ARCH" | grep -q "x86_64"; then
   DETECTED_ARCH="x86_64"
 elif echo "$GIMP_ARCH" | grep -q "arm64"; then
   DETECTED_ARCH="arm64"
 else
   DETECTED_ARCH="$HOST_ARCH"
-  echo "Warning: Could not detect GIMP.app architecture from binary:" >&2
-  echo "$GIMP_ARCH" >&2
+  warn "Could not detect GIMP.app architecture from binary: $GIMP_ARCH"
 fi
 if [[ "$DETECTED_ARCH" != "$HOST_ARCH" ]]; then
-  echo "Warning: GIMP.app architecture ($DETECTED_ARCH) differs from host ($HOST_ARCH)." >&2
-  echo "Ensure MacPorts and GIMP.app architectures match (or use Rosetta)." >&2
+  warn "GIMP.app architecture ($DETECTED_ARCH) differs from host ($HOST_ARCH)."
+  warn "Ensure MacPorts and GIMP.app architectures match (or use Rosetta)."
 fi
 
+# ── Install MacPorts dependencies ───────────────────────────────────────
 if [[ $SKIP_PORTS -eq 0 ]]; then
   require_cmd port
   sudo port -N install cmake pkgconfig qt5-qtbase qt5-qttools fftw-3 libomp dbus gdk-pixbuf2 cairo gegl glib2
-  if [[ $SKIP_GIMP3_DEVEL -eq 0 && ! -f "${GIMP_HEADERS_DIR}/gimp-3.0/libgimp/gimp.h" ]]; then
+  if [[ $SKIP_GIMP3_DEVEL -eq 0 && ! -f "${GIMP_HEADERS_DIR}/gimp-${GIMP_API_VERSION}/libgimp/gimp.h" ]]; then
     sudo port -N install gimp3-devel || true
   fi
 fi
@@ -118,81 +211,48 @@ require_cmd otool
 require_cmd install_name_tool
 require_cmd ditto
 
-if [[ ! -f "${GIMP_HEADERS_DIR}/gimp-3.0/libgimp/gimp.h" ]]; then
-  echo "GIMP headers not found at: ${GIMP_HEADERS_DIR}/gimp-3.0" >&2
-  echo "Falling back to GIMP source tarball headers..." >&2
+# ── GIMP headers fallback ────────────────────────────────────────────────
+if [[ ! -f "${GIMP_HEADERS_DIR}/gimp-${GIMP_API_VERSION}/libgimp/gimp.h" ]]; then
+  log "GIMP headers not found at: ${GIMP_HEADERS_DIR}/gimp-${GIMP_API_VERSION}"
+  log "Falling back to GIMP source tarball headers..."
 
-  GIMP_SRC_VERSION="$(detect_gimp_version)"
-  GIMP_SRC_URL="https://download.gimp.org/pub/gimp/v3.0/gimp-${GIMP_SRC_VERSION}.tar.xz"
+  # Derive download URL from detected version (e.g., 3.0.x → v3.0, 3.2.x → v3.2)
+  IFS='.' read -r _gmajor _gminor _ <<< "$GIMP_APP_VERSION"
+  GIMP_SRC_URL="https://download.gimp.org/pub/gimp/v${_gmajor}.${_gminor}/gimp-${GIMP_APP_VERSION}.tar.xz"
 
-  GMIC_TMP_GIMP_SRC="$WORKDIR/gimp-${GIMP_SRC_VERSION}"
-  GMIC_TMP_TAR="$WORKDIR/gimp-${GIMP_SRC_VERSION}.tar.xz"
-  if [[ ! -d "$GMIC_TMP_GIMP_SRC" ]]; then
-    echo "Downloading GIMP source: $GIMP_SRC_URL" >&2
-    curl -L -o "$GMIC_TMP_TAR" "$GIMP_SRC_URL"
-    tar -xJf "$GMIC_TMP_TAR" -C "$WORKDIR"
+  GIMP_SRC_DIR="$WORKDIR/gimp-${GIMP_APP_VERSION}"
+  GIMP_SRC_TAR="$WORKDIR/gimp-${GIMP_APP_VERSION}.tar.xz"
+  if [[ ! -d "$GIMP_SRC_DIR" ]]; then
+    log "Downloading GIMP source: $GIMP_SRC_URL"
+    curl -L -o "$GIMP_SRC_TAR" "$GIMP_SRC_URL"
+    tar -xJf "$GIMP_SRC_TAR" -C "$WORKDIR"
   fi
 
-  HEADER_DST="$WORKDIR/gimp-headers/include/gimp-3.0"
+  HEADER_DST="$WORKDIR/gimp-headers/include/gimp-${GIMP_API_VERSION}"
   rm -rf "$WORKDIR/gimp-headers"
   mkdir -p "$HEADER_DST"
-  for d in libgimp libgimpbase libgimpcolor libgimpconfig libgimpmath libgimpmodule libgimpthumb libgimpwidgets; do
-    if [[ -d "$GMIC_TMP_GIMP_SRC/$d" ]]; then
-      cp -R "$GMIC_TMP_GIMP_SRC/$d" "$HEADER_DST/"
-    else
-      echo "Missing header directory in GIMP source: $d" >&2
+
+  # Dynamically scan for libgimp* directories in source
+  found_headers=0
+  for d in "$GIMP_SRC_DIR"/libgimp*; do
+    if [[ -d "$d" ]]; then
+      cp -R "$d" "$HEADER_DST/"
+      found_headers=1
     fi
   done
-
-  # Generate gimpversion.h from template
-  if [[ -f "$GMIC_TMP_GIMP_SRC/libgimpbase/gimpversion.h.in" ]]; then
-    IFS='.' read -r GIMP_VER_MAJOR GIMP_VER_MINOR GIMP_VER_MICRO_REST <<< "$GIMP_SRC_VERSION"
-    GIMP_VER_MICRO="$(echo "$GIMP_VER_MICRO_REST" | sed 's/[^0-9].*$//')"
-    GIMP_VER_MAJOR="${GIMP_VER_MAJOR:-3}"
-    GIMP_VER_MINOR="${GIMP_VER_MINOR:-0}"
-    GIMP_VER_MICRO="${GIMP_VER_MICRO:-0}"
-    GIMP_API_VERSION="${GIMP_VER_MAJOR}.0"
-
-    cat > "$HEADER_DST/libgimpbase/gimpversion.h" <<EOF_GIMPVERSION
-#ifndef __GIMP_VERSION_H__
-#define __GIMP_VERSION_H__
-
-/* gimpversion.h.in -> gimpversion.h
- * This file is configured by the build script.
- */
-#if !defined (__GIMP_BASE_H_INSIDE__) && !defined (GIMP_BASE_COMPILATION)
-#error "Only <libgimpbase/gimpbase.h> can be included directly."
-#endif
-
-G_BEGIN_DECLS
-
-#define GIMP_MAJOR_VERSION                              (${GIMP_VER_MAJOR})
-#define GIMP_MINOR_VERSION                              (${GIMP_VER_MINOR})
-#define GIMP_MICRO_VERSION                              (${GIMP_VER_MICRO})
-#define GIMP_VERSION                                    "${GIMP_SRC_VERSION}"
-#define GIMP_API_VERSION                                "${GIMP_API_VERSION}"
-
-#define GIMP_CHECK_VERSION(major, minor, micro) \\
-    (GIMP_MAJOR_VERSION > (major) || \\
-     (GIMP_MAJOR_VERSION == (major) && GIMP_MINOR_VERSION > (minor)) || \\
-     (GIMP_MAJOR_VERSION == (major) && GIMP_MINOR_VERSION == (minor) && \\
-      GIMP_MICRO_VERSION >= (micro)))
-
-G_END_DECLS
-
-#endif /* __GIMP_VERSION_H__ */
-EOF_GIMPVERSION
+  if [[ $found_headers -eq 0 ]]; then
+    die "No libgimp* directories found in GIMP source: $GIMP_SRC_DIR"
   fi
 
+  generate_gimpversion_h "$GIMP_SRC_DIR" "$HEADER_DST" "$GIMP_APP_VERSION"
+
   GIMP_HEADERS_DIR="$WORKDIR/gimp-headers/include"
-  if [[ ! -f "${GIMP_HEADERS_DIR}/gimp-3.0/libgimp/gimp.h" ]]; then
-    echo "GIMP headers still missing after source fallback." >&2
-    echo "Please install gimp3-devel via MacPorts." >&2
-    exit 1
+  if [[ ! -f "${GIMP_HEADERS_DIR}/gimp-${GIMP_API_VERSION}/libgimp/gimp.h" ]]; then
+    die "GIMP headers still missing after source fallback. Please install gimp3-devel via MacPorts."
   fi
 fi
 
-# Verify required pkg-config modules (even in --skip-ports mode)
+# ── Verify required pkg-config modules ──────────────────────────────────
 missing_pkgs=()
 for pkg in gdk-pixbuf-2.0 cairo gegl-0.4 glib-2.0 gobject-2.0; do
   if ! pkg-config --exists "$pkg" >/dev/null 2>&1; then
@@ -200,39 +260,42 @@ for pkg in gdk-pixbuf-2.0 cairo gegl-0.4 glib-2.0 gobject-2.0; do
   fi
 done
 if [[ ${#missing_pkgs[@]} -gt 0 ]]; then
-  echo "Missing pkg-config modules: ${missing_pkgs[*]}" >&2
-  echo "Install via MacPorts (suggested): sudo port -N install gdk-pixbuf2 cairo gegl glib2" >&2
-  echo "Or re-run without --skip-ports." >&2
-  exit 1
+  die "Missing pkg-config modules: ${missing_pkgs[*]}. Install via MacPorts: sudo port -N install gdk-pixbuf2 cairo gegl glib2 (or re-run without --skip-ports)."
 fi
 
+# ── Download G'MIC source ────────────────────────────────────────────────
 GMIC_TARBALL="$WORKDIR/gmic_${GMIC_VERSION}.tar.gz"
 GMIC_SRC="$WORKDIR/gmic-${GMIC_VERSION}"
 
 if [[ ! -d "$GMIC_SRC" ]]; then
-  echo "Downloading G'MIC ${GMIC_VERSION}..."
+  log "Downloading G'MIC ${GMIC_VERSION}..."
   curl -L -o "$GMIC_TARBALL" "https://gmic.eu/files/source/gmic_${GMIC_VERSION}.tar.gz"
   tar -xzf "$GMIC_TARBALL" -C "$WORKDIR"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
+# ── Generate pkg-config for GIMP.app ────────────────────────────────────
 PKGDIR="$WORKDIR/gimpapp-pkgconfig"
 mkdir -p "$PKGDIR"
-GIMP_APP_VERSION="$(detect_gimp_version)"
 
 sed -e "s|@GIMP_APP@|${GIMP_APP}|g" \
     -e "s|@GIMP_HEADERS_DIR@|${GIMP_HEADERS_DIR}|g" \
     -e "s|@HOME@|${HOME}|g" \
     -e "s|@GIMP_APP_VERSION@|${GIMP_APP_VERSION}|g" \
-    "$SCRIPT_DIR/gimp-3.0.pc.in" > "$PKGDIR/gimp-3.0.pc"
+    "$SCRIPT_DIR/gimp-3.0.pc.in" > "$PKGDIR/gimp-${GIMP_API_VERSION}.pc"
 
 export PKG_CONFIG_PATH="$PKGDIR:${MACPORTS_PREFIX}/lib/pkgconfig"
 
+# ── Resolve dylib paths dynamically ────────────────────────────────────
+GIMP_LIB_DIR="$GIMP_APP/Contents/Resources/lib"
+PNG_LIBRARY="$(find_dylib "$GIMP_LIB_DIR" "libpng*.dylib")"
+ZLIB_LIBRARY="$(find_dylib "$GIMP_LIB_DIR" "libz.*.dylib")"
+CURL_LIBRARY="$(find_dylib "$GIMP_LIB_DIR" "libcurl.*.dylib")"
+
+# ── CMake configure ─────────────────────────────────────────────────────
 BUILD_DIR="$WORKDIR/build-gimpapp"
 mkdir -p "$BUILD_DIR"
 
-echo "Configuring CMake..."
+log "Configuring CMake..."
 cmake -S "$GMIC_SRC/gmic-qt" -B "$BUILD_DIR" -G "Unix Makefiles" \
   -DGMIC_QT_HOST=gimp3 \
   -DENABLE_SYSTEM_GMIC=OFF \
@@ -243,9 +306,9 @@ cmake -S "$GMIC_SRC/gmic-qt" -B "$BUILD_DIR" -G "Unix Makefiles" \
   -DCMAKE_INSTALL_PREFIX="${GIMP_APP}/Contents/Resources" \
   -DCMAKE_INSTALL_RPATH="${GIMP_APP}/Contents/Resources" \
   -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
-  -DPNG_LIBRARY="${GIMP_APP}/Contents/Resources/lib/libpng16.16.dylib" \
-  -DZLIB_LIBRARY="${GIMP_APP}/Contents/Resources/lib/libz.1.dylib" \
-  -DCURL_LIBRARY="${GIMP_APP}/Contents/Resources/lib/libcurl.4.dylib" \
+  -DPNG_LIBRARY="$PNG_LIBRARY" \
+  -DZLIB_LIBRARY="$ZLIB_LIBRARY" \
+  -DCURL_LIBRARY="$CURL_LIBRARY" \
   -DFFTW3_INCLUDE_DIR="${MACPORTS_PREFIX}/include" \
   -DFFTW3_LIBRARY_CORE="${MACPORTS_PREFIX}/lib/libfftw3.dylib" \
   -DFFTW3_LIBRARY_THREADS="${MACPORTS_PREFIX}/lib/libfftw3_threads.dylib" \
@@ -258,26 +321,23 @@ cmake -S "$GMIC_SRC/gmic-qt" -B "$BUILD_DIR" -G "Unix Makefiles" \
   -DOpenMP_omp_LIBRARY="${MACPORTS_PREFIX}/lib/libomp/libomp.dylib" \
   -DOpenMP_libomp_LIBRARY="${MACPORTS_PREFIX}/lib/libomp/libomp.dylib"
 
+# ── Build ─────────────────────────────────────────────────────────────────
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
-echo "Building..."
+log "Building with $JOBS parallel jobs..."
 cmake --build "$BUILD_DIR" --parallel "$JOBS"
 
 PLUGIN_BUILD_BIN="$BUILD_DIR/gmic_gimp_qt"
-if [[ ! -x "$PLUGIN_BUILD_BIN" ]]; then
-  echo "Build output not found: $PLUGIN_BUILD_BIN" >&2
-  exit 1
-fi
+[[ -x "$PLUGIN_BUILD_BIN" ]] || die "Build output not found: $PLUGIN_BUILD_BIN"
 
+# ── Bundle ────────────────────────────────────────────────────────────────
 BUNDLE_DIR="$OUTDIR/gmic_gimp_qt"
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR"
 
-# Copy main plugin binary
 cp "$PLUGIN_BUILD_BIN" "$BUNDLE_DIR/gmic_gimp_qt"
 PLUGIN_BIN="$BUNDLE_DIR/gmic_gimp_qt"
 
-# Build bundle via Python helper
 python3 "$SCRIPT_DIR/bundle_libs.py" \
   --bundle-dir "$BUNDLE_DIR" \
   --plugin-bin "$PLUGIN_BIN" \
@@ -294,15 +354,17 @@ rm -f "$ZIP_PATH"
 
 ditto -c -k --sequesterRsrc --keepParent "$BUNDLE_DIR" "$ZIP_PATH"
 
-echo "Bundle: $BUNDLE_DIR"
-echo "Zip:    $ZIP_PATH"
+log "Bundle: $BUNDLE_DIR"
+log "Zip:    $ZIP_PATH"
 
+# ── Optional install ────────────────────────────────────────────────────
 if [[ $INSTALL_PLUGIN -eq 1 ]]; then
-  PLUGIN_DIR="$HOME/Library/Application Support/GIMP/3.0/plug-ins"
+  PLUGIN_DIR="$HOME/Library/Application Support/GIMP/${GIMP_API_VERSION}/plug-ins"
+  mkdir -p "$PLUGIN_DIR"
   rm -rf "$PLUGIN_DIR/gmic_gimp_qt"
   cp -R "$BUNDLE_DIR" "$PLUGIN_DIR/gmic_gimp_qt"
   chmod +x "$PLUGIN_DIR/gmic_gimp_qt/gmic_gimp_qt"
   xattr -dr com.apple.quarantine "$PLUGIN_DIR/gmic_gimp_qt" || true
   rm -f "$PLUGIN_DIR/../pluginrc" || true
-  echo "Installed to: $PLUGIN_DIR/gmic_gimp_qt"
+  log "Installed to: $PLUGIN_DIR/gmic_gimp_qt"
 fi
