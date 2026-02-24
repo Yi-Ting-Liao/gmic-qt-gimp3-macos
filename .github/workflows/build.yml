@@ -16,9 +16,9 @@ on:
     workflow_dispatch:
         inputs:
             gmic_version:
-                description: "G'MIC version (e.g. 3.6.5)"
+                description: "G'MIC version (e.g. 3.7.0)"
                 required: true
-                default: "3.6.5"
+                default: "3.7.0"
             gimp_version:
                 description: "GIMP version for headers (e.g. 3.0.8)"
                 required: true
@@ -58,7 +58,7 @@ jobs:
         timeout-minutes: 360
 
         env:
-            GMIC_VERSION: ${{ inputs.gmic_version || github.event.client_payload.gmic_version || '3.6.5' }}
+            GMIC_VERSION: ${{ inputs.gmic_version || github.event.client_payload.gmic_version || '3.7.0' }}
             GIMP_VERSION: ${{ inputs.gimp_version || github.event.client_payload.gimp_version || '3.0.8' }}
             GIMP_DMG_REVISION: ${{ inputs.gimp_dmg_revision || github.event.client_payload.gimp_dmg_revision || '' }}
 
@@ -153,7 +153,6 @@ jobs:
                   ./gmic-qt-builder.sh \
                     --gimp-app /Applications/GIMP.app \
                     --gmic-version "$GMIC_VERSION" \
-                    --gimp-version "$GIMP_VERSION" \
                     --workdir "$GITHUB_WORKSPACE/work" \
                     --outdir "$GITHUB_WORKSPACE/dist" \
                     --skip-ports \
@@ -179,7 +178,7 @@ jobs:
             contents: write
 
         env:
-            GMIC_VERSION: ${{ inputs.gmic_version || github.event.client_payload.gmic_version || '3.6.5' }}
+            GMIC_VERSION: ${{ inputs.gmic_version || github.event.client_payload.gmic_version || '3.7.0' }}
 
         steps:
             - name: Download all artifacts

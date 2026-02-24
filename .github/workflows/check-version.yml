@@ -24,7 +24,7 @@ jobs:
             - name: Check latest gmic-qt version
               id: gmic
               run: |
-                  # Get latest tag from GreycLab/gmic-qt (tags like v.3.6.5)
+                  # Get latest tag from GreycLab/gmic-qt (tags like v.3.7.0)
                   LATEST_TAG="$(curl -sf 'https://api.github.com/repos/GreycLab/gmic-qt/tags?per_page=5' \
                     | jq -r '.[0].name')"
                   echo "Latest gmic-qt tag: $LATEST_TAG"

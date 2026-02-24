@@ -1,0 +1,18 @@
+prefix=@GIMP_APP@/Contents/Resources
+includedir=@GIMP_HEADERS_DIR@
+libdir=${prefix}/lib
+
+datarootdir=${prefix}/share
+gimpdatadir=${prefix}/share/gimp/3.0
+gimplibdir=@HOME@/Library/Application Support/GIMP/3.0
+gimpsysconfdir=${prefix}/etc/gimp/3.0
+gimplocaledir=${prefix}/share/locale
+
+Name: GIMP
+Description: GIMP Library (GIMP.app)
+Version: @GIMP_APP_VERSION@
+Requires: gdk-pixbuf-2.0 >= 2.30.8, cairo >= 1.14.0, gegl-0.4 >= 0.4.50
+Requires.private: gexiv2 >= 0.14.0, gio-2.0, lcms2 >= 2.8, glib-2.0 >= 2.70.0, gobject-2.0 >= 2.70.0, gio-unix-2.0, gmodule-no-export-2.0, pango >= 1.50.0, pangoft2 >= 1.50.0
+Libs: -L${libdir} -lgimp-3.0 -lgimpbase-3.0 -lgimpcolor-3.0 -lgimpconfig-3.0 -lgimpmath-3.0
+Libs.private: -lm -L${libdir} -lgimpmodule-3.0
+Cflags: -I${includedir}/gimp-3.0

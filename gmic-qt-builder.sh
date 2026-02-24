@@ -4,14 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 GIMP_APP="${GIMP_APP:-/Applications/GIMP.app}"
-GMIC_VERSION="${GMIC_VERSION:-3.6.5}"
+GMIC_VERSION="${GMIC_VERSION:-3.7.0}"
 WORKDIR="${WORKDIR:-${ROOT_DIR}/work}"
 OUTDIR="${OUTDIR:-${ROOT_DIR}/dist}"
 MACPORTS_PREFIX="${MACPORTS_PREFIX:-/opt/local}"
 QT_PREFIX="${QT_PREFIX:-${MACPORTS_PREFIX}/libexec/qt5}"
-GIMP_HEADERS_DIR="${GIMP_HEADERS_DIR:-${MACPORTS_PREFIX}/include}"
-GIMP_SRC_VERSION=""
-GIMP_SRC_URL=""
+GIMP_HEADERS_DIR="${MACPORTS_PREFIX}/include"
 SKIP_PORTS=0
 SKIP_GIMP3_DEVEL=0
 INSTALL_PLUGIN=0
@@ -22,12 +20,9 @@ Usage: build_gmic_qt_gimp3_macos.sh [options]
 
 Options:
   --gimp-app <path>       Path to GIMP.app (default: /Applications/GIMP.app)
-  --gmic-version <ver>    G'MIC version (default: 3.6.5)
+  --gmic-version <ver>    G'MIC version (default: 3.7.0)
   --workdir <path>        Working directory
   --outdir <path>         Output directory for bundle/zip
-  --gimp-headers <path>   Include dir that contains gimp-3.0 (default: /opt/local/include)
-  --gimp-version <ver>    GIMP source version for headers fallback (default: detected from GIMP.app)
-  --gimp-src-url <url>    Override GIMP source tarball URL
   --skip-ports            Do not install MacPorts deps
   --skip-gimp3-devel      Do not attempt to install gimp3-devel (use source headers fallback)
   --install               Also copy bundle to user plugin directory
@@ -41,9 +36,6 @@ while [[ $# -gt 0 ]]; do
     --gmic-version) GMIC_VERSION="$2"; shift 2;;
     --workdir) WORKDIR="$2"; shift 2;;
     --outdir) OUTDIR="$2"; shift 2;;
-    --gimp-headers) GIMP_HEADERS_DIR="$2"; shift 2;;
-    --gimp-version) GIMP_SRC_VERSION="$2"; shift 2;;
-    --gimp-src-url) GIMP_SRC_URL="$2"; shift 2;;
     --skip-ports) SKIP_PORTS=1; shift;;
     --skip-gimp3-devel) SKIP_GIMP3_DEVEL=1; shift;;
     --install) INSTALL_PLUGIN=1; shift;;
@@ -71,10 +63,11 @@ detect_gimp_version() {
   if [[ -z "$ver" && -x "$GIMP_BIN" ]]; then
     ver="$("$GIMP_BIN" --version 2>/dev/null | awk '/version/ {print $NF; exit}' || true)"
   fi
-  # Method 3: fallback to --gimp-version parameter or default
+  # No version detected — cannot continue safely
   if [[ -z "$ver" ]]; then
-    ver="${GIMP_SRC_VERSION:-3.0.6}"
-    echo "Warning: Could not detect GIMP version, using fallback: $ver" >&2
+    echo "Error: Could not detect GIMP version from $GIMP_APP" >&2
+    echo "Ensure GIMP.app has a valid Info.plist with CFBundleShortVersionString." >&2
+    exit 1
   fi
   echo "$ver"
 }
@@ -129,14 +122,8 @@ if [[ ! -f "${GIMP_HEADERS_DIR}/gimp-3.0/libgimp/gimp.h" ]]; then
   echo "GIMP headers not found at: ${GIMP_HEADERS_DIR}/gimp-3.0" >&2
   echo "Falling back to GIMP source tarball headers..." >&2
 
-  if [[ -z "$GIMP_SRC_VERSION" ]]; then
-    # Try to detect version from GIMP.app (headless-safe)
-    GIMP_SRC_VERSION="$(detect_gimp_version)"
-  fi
-
-  if [[ -z "$GIMP_SRC_URL" ]]; then
-    GIMP_SRC_URL="https://download.gimp.org/pub/gimp/v3.0/gimp-${GIMP_SRC_VERSION}.tar.xz"
-  fi
+  GIMP_SRC_VERSION="$(detect_gimp_version)"
+  GIMP_SRC_URL="https://download.gimp.org/pub/gimp/v3.0/gimp-${GIMP_SRC_VERSION}.tar.xz"
 
   GMIC_TMP_GIMP_SRC="$WORKDIR/gimp-${GIMP_SRC_VERSION}"
   GMIC_TMP_TAR="$WORKDIR/gimp-${GIMP_SRC_VERSION}.tar.xz"
@@ -200,7 +187,7 @@ EOF_GIMPVERSION
   GIMP_HEADERS_DIR="$WORKDIR/gimp-headers/include"
   if [[ ! -f "${GIMP_HEADERS_DIR}/gimp-3.0/libgimp/gimp.h" ]]; then
     echo "GIMP headers still missing after source fallback." >&2
-    echo "Please install gimp3-devel or pass --gimp-headers <path>." >&2
+    echo "Please install gimp3-devel via MacPorts." >&2
     exit 1
   fi
 fi
@@ -228,30 +215,17 @@ if [[ ! -d "$GMIC_SRC" ]]; then
   tar -xzf "$GMIC_TARBALL" -C "$WORKDIR"
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 PKGDIR="$WORKDIR/gimpapp-pkgconfig"
 mkdir -p "$PKGDIR"
 GIMP_APP_VERSION="$(detect_gimp_version)"
 
-cat > "$PKGDIR/gimp-3.0.pc" <<EOF_PC
-prefix=${GIMP_APP}/Contents/Resources
-includedir=${GIMP_HEADERS_DIR}
-libdir=\${prefix}/lib
-
-datarootdir=\${prefix}/share
-gimpdatadir=\${prefix}/share/gimp/3.0
-gimplibdir=$HOME/Library/Application Support/GIMP/3.0
-gimpsysconfdir=\${prefix}/etc/gimp/3.0
-gimplocaledir=\${prefix}/share/locale
-
-Name: GIMP
-Description: GIMP Library (GIMP.app)
-Version: ${GIMP_APP_VERSION}
-Requires: gdk-pixbuf-2.0 >= 2.30.8, cairo >= 1.14.0, gegl-0.4 >= 0.4.50
-Requires.private: gexiv2 >= 0.14.0, gio-2.0, lcms2 >= 2.8, glib-2.0 >= 2.70.0, gobject-2.0 >= 2.70.0, gio-unix-2.0, gmodule-no-export-2.0, pango >= 1.50.0, pangoft2 >= 1.50.0
-Libs: -L\${libdir} -lgimp-3.0 -lgimpbase-3.0 -lgimpcolor-3.0 -lgimpconfig-3.0 -lgimpmath-3.0
-Libs.private: -lm -L\${libdir} -lgimpmodule-3.0
-Cflags: -I\${includedir}/gimp-3.0
-EOF_PC
+sed -e "s|@GIMP_APP@|${GIMP_APP}|g" \
+    -e "s|@GIMP_HEADERS_DIR@|${GIMP_HEADERS_DIR}|g" \
+    -e "s|@HOME@|${HOME}|g" \
+    -e "s|@GIMP_APP_VERSION@|${GIMP_APP_VERSION}|g" \
+    "$SCRIPT_DIR/gimp-3.0.pc.in" > "$PKGDIR/gimp-3.0.pc"
 
 export PKG_CONFIG_PATH="$PKGDIR:${MACPORTS_PREFIX}/lib/pkgconfig"
 
@@ -304,205 +278,12 @@ cp "$PLUGIN_BUILD_BIN" "$BUNDLE_DIR/gmic_gimp_qt"
 PLUGIN_BIN="$BUNDLE_DIR/gmic_gimp_qt"
 
 # Build bundle via Python helper
-export BUNDLE_DIR PLUGIN_BIN QT_PREFIX GIMP_APP MACPORTS_PREFIX
-python3 - <<'PY'
-import os
-import re
-import shutil
-import subprocess
-import sys
-from pathlib import Path
-
-bundle_dir = Path(os.environ.get("BUNDLE_DIR", ""))
-plugin_bin = Path(os.environ.get("PLUGIN_BIN", ""))
-qt_prefix = Path(os.environ.get("QT_PREFIX", ""))
-gimp_app = Path(os.environ.get("GIMP_APP", ""))
-macports_prefix = Path(os.environ.get("MACPORTS_PREFIX", "/opt/local"))
-
-if not bundle_dir or not plugin_bin.exists():
-    print("Missing bundle_dir or plugin_bin", file=sys.stderr)
-    sys.exit(1)
-
-frameworks_dir = bundle_dir / "Frameworks"
-plugins_dir = frameworks_dir / "plugins"
-lib_dir = frameworks_dir / "lib"
-frameworks_dir.mkdir(parents=True, exist_ok=True)
-plugins_dir.mkdir(parents=True, exist_ok=True)
-lib_dir.mkdir(parents=True, exist_ok=True)
-
-qt_frameworks = ["QtCore", "QtGui", "QtWidgets", "QtNetwork", "QtDBus", "QtPrintSupport"]
-qt_lib_dir = qt_prefix / "lib"
-qt_plugins_dir = qt_prefix / "plugins"
-
-# Explicit libs to bundle even if current binaries reference them via @rpath
-explicit_libs = [
-    macports_prefix / "lib/libfftw3.3.dylib",
-    macports_prefix / "lib/libfftw3_threads.3.dylib",
-    macports_prefix / "lib/libomp/libomp.dylib",
-    macports_prefix / "lib/libdbus-1.3.dylib",
-    # Fallbacks from GIMP.app (if present)
-    gimp_app / "Contents/Resources/lib/libpng16.16.dylib",
-    gimp_app / "Contents/Resources/lib/libz.1.dylib",
-    gimp_app / "Contents/Resources/lib/libcurl.4.dylib",
-]
-
-# Copy Qt frameworks
-for name in qt_frameworks:
-    src = qt_lib_dir / f"{name}.framework"
-    dst = frameworks_dir / f"{name}.framework"
-    if not src.exists():
-        print(f"Missing Qt framework: {src}", file=sys.stderr)
-        sys.exit(1)
-    if dst.exists():
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst, symlinks=True)
-
-# Copy Qt plugins
-for sub in ["platforms", "styles", "imageformats", "iconengines"]:
-    src = qt_plugins_dir / sub
-    dst = plugins_dir / sub
-    if src.exists():
-        if dst.exists():
-            shutil.rmtree(dst)
-        shutil.copytree(src, dst, symlinks=True)
-
-# Write qt.conf
-qt_conf = bundle_dir / "qt.conf"
-qt_conf.write_text("[Paths]\nPlugins = Frameworks/plugins\n", encoding="utf-8")
-
-# Helper functions
-
-def run(cmd):
-    subprocess.run(cmd, check=True)
-
-
-def otool_deps(path):
-    out = subprocess.check_output(["otool", "-L", str(path)], text=True)
-    deps = []
-    for line in out.splitlines()[1:]:
-        dep = line.strip().split(" ", 1)[0]
-        deps.append(dep)
-    return deps
-
-
-def is_framework(dep):
-    return ".framework/" in dep and dep.endswith(tuple(qt_frameworks))
-
-
-def framework_name(dep):
-    # /opt/local/libexec/qt5/lib/QtCore.framework/Versions/5/QtCore
-    parts = dep.split("/")
-    for part in parts:
-        if part.endswith(".framework"):
-            return part.replace(".framework", "")
-    return None
-
-
-def add_rpath_if_missing(binpath, rpath):
-    out = subprocess.check_output(["otool", "-l", str(binpath)], text=True)
-    if f"path {rpath} " in out:
-        return
-    run(["install_name_tool", "-add_rpath", rpath, str(binpath)])
-
-
-def set_id(binpath, new_id):
-    run(["install_name_tool", "-id", new_id, str(binpath)])
-
-
-# Collect binaries to scan
-binaries = set()
-binaries.add(plugin_bin)
-
-# Qt framework binaries
-for name in qt_frameworks:
-    fw_bin = frameworks_dir / f"{name}.framework/Versions/5/{name}"
-    if fw_bin.exists():
-        binaries.add(fw_bin)
-
-# Qt plugin dylibs
-for dylib in plugins_dir.rglob("*.dylib"):
-    binaries.add(dylib)
-
-# Copy explicit libs
-for src in explicit_libs:
-    if src.exists():
-        dst = lib_dir / src.name
-        if not dst.exists():
-            shutil.copy2(src, dst)
-
-# Recursively gather deps
-queue = list(binaries)
-seen = set(queue)
-
-opt_local = str(macports_prefix)
-
-while queue:
-    item = queue.pop(0)
-    for dep in otool_deps(item):
-        if dep.startswith("@"):
-            continue
-        if dep.startswith(str(gimp_app)):
-            continue
-        if dep.startswith("/System") or dep.startswith("/usr/lib"):
-            continue
-        if dep.startswith(opt_local):
-            # Copy .dylib into Frameworks root
-            if dep.endswith(".dylib"):
-                src = Path(dep)
-                dst = lib_dir / src.name
-                if not dst.exists():
-                    shutil.copy2(src, dst)
-                    seen.add(dst)
-                    queue.append(dst)
-            # Frameworks already copied
-            continue
-
-# Update binaries list with copied dylibs
-for dylib in lib_dir.glob("*.dylib"):
-    binaries.add(dylib)
-
-# Fix install ids for copied dylibs
-for dylib in lib_dir.glob("*.dylib"):
-    set_id(dylib, f"@rpath/lib/{dylib.name}")
-
-# Fix install ids for Qt frameworks
-for name in qt_frameworks:
-    fw_bin = frameworks_dir / f"{name}.framework/Versions/5/{name}"
-    if fw_bin.exists():
-        set_id(fw_bin, f"@rpath/{name}.framework/Versions/5/{name}")
-
-# Remap deps in all binaries
-for binpath in list(binaries):
-    deps = otool_deps(binpath)
-    for dep in deps:
-        if dep.startswith("@"):
-            continue
-        if dep.startswith(str(gimp_app)) or dep.startswith("/System") or dep.startswith("/usr/lib"):
-            continue
-        if dep.startswith(opt_local):
-            if ".framework/" in dep:
-                name = framework_name(dep)
-                if name:
-                    new = f"@rpath/{name}.framework/Versions/5/{name}"
-                    run(["install_name_tool", "-change", dep, new, str(binpath)])
-            elif dep.endswith(".dylib"):
-                new = f"@rpath/lib/{Path(dep).name}"
-                run(["install_name_tool", "-change", dep, new, str(binpath)])
-
-# Add rpaths
-add_rpath_if_missing(plugin_bin, "@loader_path/Frameworks")
-add_rpath_if_missing(plugin_bin, f"{gimp_app}/Contents/Resources")
-
-for dylib in plugins_dir.rglob("*.dylib"):
-    add_rpath_if_missing(dylib, "@loader_path/../..")
-    add_rpath_if_missing(dylib, "@executable_path/../Frameworks")
-
-for name in qt_frameworks:
-    fw_bin = frameworks_dir / f"{name}.framework/Versions/5/{name}"
-    if fw_bin.exists():
-        add_rpath_if_missing(fw_bin, "@loader_path/../../..")
-
-PY
+python3 "$SCRIPT_DIR/bundle_libs.py" \
+  --bundle-dir "$BUNDLE_DIR" \
+  --plugin-bin "$PLUGIN_BIN" \
+  --qt-prefix "$QT_PREFIX" \
+  --gimp-app "$GIMP_APP" \
+  --macports-prefix "$MACPORTS_PREFIX"
 
 # Clear quarantine
 xattr -dr com.apple.quarantine "$BUNDLE_DIR" || true
