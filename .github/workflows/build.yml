@@ -217,6 +217,17 @@ jobs:
                         xattr -dr com.apple.quarantine "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt"
                         ```
                       4. Restart GIMP
+
+                      ### Source Code & License
+
+                      G'MIC-Qt is free software distributed under the [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html) license.
+                      The G'MIC core library is distributed under the [CeCILL](https://cecill.info/licences/Licence_CeCILL_V2.1-en.html) license.
+
+                      Source code for this build:
+                      - G'MIC / G'MIC-Qt ${{ env.GMIC_VERSION }}: <https://github.com/GreycLab/gmic-qt/tree/v.${{ env.GMIC_VERSION }}>
+                      - Build scripts: <https://github.com/${{ github.repository }}>
+
+                      A copy of the GPL-3.0 license (`COPYING`) is included in each zip archive.
                   files: artifacts/**/*.zip
                   draft: false
                   prerelease: false

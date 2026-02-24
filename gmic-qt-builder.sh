@@ -15,7 +15,7 @@ QT_PREFIX="${QT_PREFIX:-${MACPORTS_PREFIX}/libexec/qt5}"
 GIMP_HEADERS_DIR="${GIMP_HEADERS_DIR:-${MACPORTS_PREFIX}/include}"
 GIMP_API_VERSION="${GIMP_API_VERSION:-3.0}"
 SKIP_PORTS=0
-SKIP_GIMP3_DEVEL=0
+SKIP_GIMP3_DEVEL=1
 INSTALL_PLUGIN=0
 CLEAN=0
 
@@ -344,6 +344,14 @@ python3 "$SCRIPT_DIR/bundle_libs.py" \
   --qt-prefix "$QT_PREFIX" \
   --gimp-app "$GIMP_APP" \
   --macports-prefix "$MACPORTS_PREFIX"
+
+# Include upstream license file in the bundle
+GMIC_QT_COPYING="$GMIC_SRC/gmic-qt/COPYING"
+if [[ -f "$GMIC_QT_COPYING" ]]; then
+  cp "$GMIC_QT_COPYING" "$BUNDLE_DIR/COPYING"
+else
+  warn "COPYING file not found in gmic-qt source; license file not included in bundle."
+fi
 
 BUILD_ARCH="${DETECTED_ARCH:-$(uname -m)}"
 ZIP_PATH="$OUTDIR/gmic-qt-gimp3-macos-${GMIC_VERSION}-${BUILD_ARCH}.zip"
