@@ -51,10 +51,8 @@ jobs:
                 include:
                     - runner: macos-15-intel
                       arch: x86_64
-                      macports_os: 15-Sequoia
-                    - runner: macos-14
+                    - runner: macos-15
                       arch: arm64
-                      macports_os: 14-Sonoma
 
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 360
@@ -78,16 +76,22 @@ jobs:
                   echo "macOS version:       $(sw_vers -productVersion)"
 
             # ── Step 1: Install MacPorts ──────────────────────────────────
-            - name: Install MacPorts
+            - name: Install MacPorts from source
               run: |
-                  MACPORTS_PKG="MacPorts-${MACPORTS_VERSION}-${{ matrix.macports_os }}.pkg"
-                  MACPORTS_URL="https://github.com/macports/macports-base/releases/download/v${MACPORTS_VERSION}/${MACPORTS_PKG}"
+                  MACPORTS_TAR="MacPorts-${MACPORTS_VERSION}.tar.gz"
+                  MACPORTS_URL="https://github.com/macports/macports-base/releases/download/v${MACPORTS_VERSION}/${MACPORTS_TAR}"
 
-                  echo "Downloading MacPorts: $MACPORTS_URL"
-                  curl -L -o "/tmp/${MACPORTS_PKG}" "$MACPORTS_URL"
+                  echo "Downloading MacPorts source: $MACPORTS_URL"
+                  curl -L -o "/tmp/${MACPORTS_TAR}" "$MACPORTS_URL"
 
-                  echo "Installing MacPorts..."
-                  sudo installer -pkg "/tmp/${MACPORTS_PKG}" -target /
+                  echo "Extracting..."
+                  tar -xzf "/tmp/${MACPORTS_TAR}" -C /tmp
+
+                  echo "Building and installing MacPorts..."
+                  cd "/tmp/MacPorts-${MACPORTS_VERSION}"
+                  ./configure --prefix=/opt/local
+                  make -j$(sysctl -n hw.ncpu)
+                  sudo make install
 
                   # Add MacPorts to PATH for subsequent steps
                   echo "/opt/local/bin" >> "$GITHUB_PATH"
