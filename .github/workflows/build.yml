@@ -1,0 +1,222 @@
+# Build G'MIC-Qt plugin for GIMP 3 on macOS (x86_64 + arm64)
+#
+# This workflow:
+# 1. Installs MacPorts from source on the GitHub Actions macOS runner
+# 2. Downloads and mounts GIMP.app from the official DMG
+# 3. Runs gmic-qt-builder.sh to compile and bundle the plugin
+# 4. Uploads artifacts and creates a GitHub Release
+#
+# Triggered by:
+# - Manual workflow_dispatch with version inputs
+# - repository_dispatch from the check-version workflow
+
+name: Build G'MIC-Qt for GIMP 3 macOS
+
+on:
+    workflow_dispatch:
+        inputs:
+            gmic_version:
+                description: "G'MIC version (e.g. 3.6.5)"
+                required: true
+                default: "3.6.5"
+            gimp_version:
+                description: "GIMP version for headers (e.g. 3.0.8)"
+                required: true
+                default: "3.0.8"
+            gimp_dmg_revision:
+                description: "GIMP DMG revision suffix (e.g. 1, or leave empty)"
+                required: false
+                default: ""
+            create_release:
+                description: "Create GitHub Release?"
+                type: boolean
+                default: true
+
+    repository_dispatch:
+        types: [new-gmic-version]
+
+# Cancel in-progress runs for the same ref
+concurrency:
+    group: build-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    MACPORTS_VERSION: "2.10.5"
+
+jobs:
+    build:
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - runner: macos-13
+                      arch: x86_64
+                      macports_os: 13-Ventura
+                    - runner: macos-14
+                      arch: arm64
+                      macports_os: 14-Sonoma
+
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 360
+
+        env:
+            GMIC_VERSION: ${{ inputs.gmic_version || github.event.client_payload.gmic_version || '3.6.5' }}
+            GIMP_VERSION: ${{ inputs.gimp_version || github.event.client_payload.gimp_version || '3.0.8' }}
+            GIMP_DMG_REVISION: ${{ inputs.gimp_dmg_revision || github.event.client_payload.gimp_dmg_revision || '' }}
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Show build parameters
+              run: |
+                  echo "G'MIC version:       $GMIC_VERSION"
+                  echo "GIMP version:        $GIMP_VERSION"
+                  echo "GIMP DMG revision:   $GIMP_DMG_REVISION"
+                  echo "Architecture:        ${{ matrix.arch }}"
+                  echo "Runner:              ${{ matrix.runner }}"
+                  echo "macOS version:       $(sw_vers -productVersion)"
+
+            # ── Step 1: Install MacPorts ──────────────────────────────────
+            - name: Install MacPorts
+              run: |
+                  MACPORTS_PKG="MacPorts-${MACPORTS_VERSION}-${{ matrix.macports_os }}.pkg"
+                  MACPORTS_URL="https://github.com/macports/macports-base/releases/download/v${MACPORTS_VERSION}/${MACPORTS_PKG}"
+
+                  echo "Downloading MacPorts: $MACPORTS_URL"
+                  curl -L -o "/tmp/${MACPORTS_PKG}" "$MACPORTS_URL"
+
+                  echo "Installing MacPorts..."
+                  sudo installer -pkg "/tmp/${MACPORTS_PKG}" -target /
+
+                  # Add MacPorts to PATH for subsequent steps
+                  echo "/opt/local/bin" >> "$GITHUB_PATH"
+                  echo "/opt/local/sbin" >> "$GITHUB_PATH"
+
+            - name: Update MacPorts and install dependencies
+              run: |
+                  export PATH="/opt/local/bin:/opt/local/sbin:$PATH"
+                  sudo /opt/local/bin/port -N selfupdate
+                  echo "Installing build dependencies via MacPorts (this may take a while)..."
+                  sudo /opt/local/bin/port -N install \
+                    cmake pkgconfig \
+                    qt5-qtbase qt5-qttools \
+                    fftw-3 libomp dbus \
+                    gdk-pixbuf2 cairo gegl glib2
+
+            # ── Step 2: Download and install GIMP.app ─────────────────────
+            - name: Download and install GIMP.app
+              run: |
+                  # Build DMG filename: gimp-{version}-{arch}[-{revision}].dmg
+                  if [[ -n "$GIMP_DMG_REVISION" ]]; then
+                    DMG_FILENAME="gimp-${GIMP_VERSION}-${{ matrix.arch }}-${GIMP_DMG_REVISION}.dmg"
+                  else
+                    DMG_FILENAME="gimp-${GIMP_VERSION}-${{ matrix.arch }}.dmg"
+                  fi
+                  DMG_URL="https://download.gimp.org/gimp/v3.0/macos/${DMG_FILENAME}"
+
+                  echo "Downloading GIMP DMG: $DMG_URL"
+                  curl -L -o /tmp/gimp.dmg "$DMG_URL"
+
+                  echo "Mounting DMG..."
+                  hdiutil attach /tmp/gimp.dmg -nobrowse -mountpoint /Volumes/GIMP
+
+                  echo "Copying GIMP.app to /Applications..."
+                  # The .app name inside DMG might vary, find it
+                  GIMP_APP_SRC="$(find /Volumes/GIMP -maxdepth 1 -name 'GIMP*.app' -print -quit)"
+                  if [[ -z "$GIMP_APP_SRC" ]]; then
+                    echo "ERROR: Could not find GIMP.app in mounted DMG" >&2
+                    ls -la /Volumes/GIMP/
+                    exit 1
+                  fi
+                  echo "Found: $GIMP_APP_SRC"
+                  sudo cp -R "$GIMP_APP_SRC" /Applications/GIMP.app
+
+                  hdiutil detach /Volumes/GIMP || true
+                  rm -f /tmp/gimp.dmg
+
+                  # Verify installation
+                  DETECTED_VER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/GIMP.app/Contents/Info.plist)"
+                  echo "GIMP.app installed — version: $DETECTED_VER"
+                  echo "GIMP binary arch: $(file /Applications/GIMP.app/Contents/MacOS/gimp)"
+
+            # ── Step 3: Build G'MIC-Qt ────────────────────────────────────
+            - name: Build G'MIC-Qt plugin
+              run: |
+                  export PATH="/opt/local/bin:/opt/local/sbin:$PATH"
+                  chmod +x ./gmic-qt-builder.sh
+
+                  ./gmic-qt-builder.sh \
+                    --gimp-app /Applications/GIMP.app \
+                    --gmic-version "$GMIC_VERSION" \
+                    --gimp-version "$GIMP_VERSION" \
+                    --skip-ports \
+                    --skip-gimp3-devel
+
+            # ── Step 4: Upload artifact ───────────────────────────────────
+            - name: Upload build artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: gmic-qt-macos-${{ matrix.arch }}
+                  path: dist/gmic_gimp_qt-gimp3-macos-*-bundled.zip
+                  if-no-files-found: error
+
+    # ── Release job ─────────────────────────────────────────────────
+    release:
+        needs: build
+        runs-on: ubuntu-latest
+        if: >-
+            (inputs.create_release == true || inputs.create_release == 'true') ||
+            github.event_name == 'repository_dispatch'
+
+        permissions:
+            contents: write
+
+        env:
+            GMIC_VERSION: ${{ inputs.gmic_version || github.event.client_payload.gmic_version || '3.6.5' }}
+
+        steps:
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  path: artifacts/
+                  merge-multiple: false
+
+            - name: List artifacts
+              run: find artifacts/ -type f -name '*.zip' | sort
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: v${{ env.GMIC_VERSION }}
+                  name: "G'MIC-Qt ${{ env.GMIC_VERSION }} for GIMP 3 (macOS)"
+                  body: |
+                      ## G'MIC-Qt ${{ env.GMIC_VERSION }} for GIMP 3 on macOS
+
+                      Pre-built plugin bundles for macOS. Download the zip matching your architecture:
+
+                      - **x86_64** — For Intel Macs (or GIMP.app running under Rosetta)
+                      - **arm64** — For Apple Silicon Macs (M1/M2/M3/M4)
+
+                      ### Installation
+
+                      ```bash
+                      # Remove old version (if any)
+                      rm -rf "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt"
+
+                      # Extract the zip
+                      unzip gmic_gimp_qt-gimp3-macos-*.zip -d "$HOME/Library/Application Support/GIMP/3.0/plug-ins"
+
+                      # Make executable
+                      chmod +x "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt/gmic_gimp_qt"
+
+                      # Remove quarantine attribute
+                      xattr -dr com.apple.quarantine "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt"
+
+                      # Clear plugin cache and restart GIMP
+                      rm -f "$HOME/Library/Application Support/GIMP/3.0/pluginrc"
+                      ```
+                  files: artifacts/**/*.zip
+                  draft: false
+                  prerelease: false
+                  generate_release_notes: false

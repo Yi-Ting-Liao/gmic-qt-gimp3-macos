@@ -1,0 +1,124 @@
+# Check for new G'MIC-Qt releases and trigger a build if found.
+#
+# This workflow:
+# 1. Fetches the latest gmic-qt tag from GitHub
+# 2. Fetches the latest GIMP DMG version from download.gimp.org
+# 3. Compares with the latest release in this repo
+# 4. If a new gmic-qt version is found, triggers the build workflow
+#
+# Runs daily at UTC 08:00 and can also be triggered manually.
+
+name: Check for new G'MIC-Qt version
+
+on:
+    schedule:
+        - cron: "0 8 * * *"
+    workflow_dispatch:
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - name: Check latest gmic-qt version
+              id: gmic
+              run: |
+                  # Get latest tag from GreycLab/gmic-qt (tags like v.3.6.5)
+                  LATEST_TAG="$(curl -sf 'https://api.github.com/repos/GreycLab/gmic-qt/tags?per_page=5' \
+                    | jq -r '.[0].name')"
+                  echo "Latest gmic-qt tag: $LATEST_TAG"
+
+                  # Strip leading 'v.' or 'v' to get the version number
+                  GMIC_VERSION="$(echo "$LATEST_TAG" | sed 's/^v\.//;s/^v//')"
+                  echo "Parsed version: $GMIC_VERSION"
+                  echo "gmic_version=$GMIC_VERSION" >> "$GITHUB_OUTPUT"
+                  echo "gmic_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
+
+            - name: Check latest GIMP macOS DMG version
+              id: gimp
+              run: |
+                  # Parse the GIMP download directory for the LATEST-IS marker file
+                  # Format: 0.0_LATEST-IS-{version}[-{revision}]
+                  LATEST_MARKER="$(curl -sf 'https://download.gimp.org/gimp/v3.0/macos/' \
+                    | grep -oP '0\.0_LATEST-IS-[^"<]+' \
+                    | head -1 || true)"
+
+                  if [[ -z "$LATEST_MARKER" ]]; then
+                    # Fallback: try parsing with sed (for non-GNU grep)
+                    LATEST_MARKER="$(curl -sf 'https://download.gimp.org/gimp/v3.0/macos/' \
+                      | sed -n 's/.*\(0\.0_LATEST-IS-[^"<]*\).*/\1/p' \
+                      | head -1 || true)"
+                  fi
+
+                  echo "GIMP latest marker: $LATEST_MARKER"
+
+                  if [[ -n "$LATEST_MARKER" ]]; then
+                    # Extract version and optional revision from marker
+                    # e.g. "0.0_LATEST-IS-3.0.8-1" -> version=3.0.8, revision=1
+                    # e.g. "0.0_LATEST-IS-3.0.6"   -> version=3.0.6, revision=""
+                    MARKER_SUFFIX="${LATEST_MARKER#0.0_LATEST-IS-}"
+
+                    # Split: first 3 dot-separated parts are version, rest (after 3rd dot group) is revision
+                    # Pattern: MAJOR.MINOR.MICRO[-REVISION]
+                    GIMP_VERSION="$(echo "$MARKER_SUFFIX" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')"
+                    REVISION_PART="${MARKER_SUFFIX#"$GIMP_VERSION"}"
+                    GIMP_DMG_REVISION="${REVISION_PART#-}"
+                  else
+                    echo "Warning: Could not parse GIMP latest marker, using defaults"
+                    GIMP_VERSION="3.0.8"
+                    GIMP_DMG_REVISION=""
+                  fi
+
+                  echo "GIMP version: $GIMP_VERSION"
+                  echo "GIMP DMG revision: $GIMP_DMG_REVISION"
+                  echo "gimp_version=$GIMP_VERSION" >> "$GITHUB_OUTPUT"
+                  echo "gimp_dmg_revision=$GIMP_DMG_REVISION" >> "$GITHUB_OUTPUT"
+
+            - name: Check if we already have this gmic-qt version
+              id: check
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  GMIC_VERSION="${{ steps.gmic.outputs.gmic_version }}"
+                  RELEASE_TAG="v${GMIC_VERSION}"
+
+                  echo "Checking for existing release: $RELEASE_TAG"
+
+                  # Check if a release with this tag already exists
+                  HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' \
+                    -H "Authorization: Bearer $GH_TOKEN" \
+                    "https://api.github.com/repos/${{ github.repository }}/releases/tags/${RELEASE_TAG}")"
+
+                  if [[ "$HTTP_CODE" == "200" ]]; then
+                    echo "Release $RELEASE_TAG already exists — skipping build."
+                    echo "should_build=false" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "Release $RELEASE_TAG not found (HTTP $HTTP_CODE) — triggering build."
+                    echo "should_build=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Trigger build workflow
+              if: steps.check.outputs.should_build == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  echo "Dispatching build workflow..."
+                  echo "  gmic_version:      ${{ steps.gmic.outputs.gmic_version }}"
+                  echo "  gimp_version:      ${{ steps.gimp.outputs.gimp_version }}"
+                  echo "  gimp_dmg_revision: ${{ steps.gimp.outputs.gimp_dmg_revision }}"
+
+                  curl -X POST \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    -H "Authorization: Bearer $GH_TOKEN" \
+                    "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+                    -d '{
+                      "event_type": "new-gmic-version",
+                      "client_payload": {
+                        "gmic_version": "${{ steps.gmic.outputs.gmic_version }}",
+                        "gimp_version": "${{ steps.gimp.outputs.gimp_version }}",
+                        "gimp_dmg_revision": "${{ steps.gimp.outputs.gimp_dmg_revision }}"
+                      }
+                    }'
+
+                  echo "Build workflow triggered successfully."

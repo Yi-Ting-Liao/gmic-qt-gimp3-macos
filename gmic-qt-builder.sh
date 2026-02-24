@@ -59,6 +59,26 @@ require_cmd() {
   fi
 }
 
+# Detect GIMP version from Info.plist (headless-safe) or gimp --version (fallback)
+detect_gimp_version() {
+  local plist="$GIMP_APP/Contents/Info.plist"
+  local ver=""
+  # Method 1: PlistBuddy (works headless, no display needed)
+  if [[ -f "$plist" ]] && command -v /usr/libexec/PlistBuddy >/dev/null 2>&1; then
+    ver="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null || true)"
+  fi
+  # Method 2: gimp --version (may fail in headless CI)
+  if [[ -z "$ver" && -x "$GIMP_BIN" ]]; then
+    ver="$("$GIMP_BIN" --version 2>/dev/null | awk '/version/ {print $NF; exit}' || true)"
+  fi
+  # Method 3: fallback to --gimp-version parameter or default
+  if [[ -z "$ver" ]]; then
+    ver="${GIMP_SRC_VERSION:-3.0.6}"
+    echo "Warning: Could not detect GIMP version, using fallback: $ver" >&2
+  fi
+  echo "$ver"
+}
+
 if [[ ! -d "$GIMP_APP" ]]; then
   echo "GIMP.app not found at: $GIMP_APP" >&2
   exit 1
@@ -73,10 +93,19 @@ fi
 mkdir -p "$WORKDIR" "$OUTDIR"
 
 GIMP_ARCH="$(file "$GIMP_BIN")"
-if ! echo "$GIMP_ARCH" | grep -q "x86_64"; then
-  echo "Warning: GIMP.app does not look like x86_64:" >&2
+HOST_ARCH="$(uname -m)"
+if echo "$GIMP_ARCH" | grep -q "x86_64"; then
+  DETECTED_ARCH="x86_64"
+elif echo "$GIMP_ARCH" | grep -q "arm64"; then
+  DETECTED_ARCH="arm64"
+else
+  DETECTED_ARCH="$HOST_ARCH"
+  echo "Warning: Could not detect GIMP.app architecture from binary:" >&2
   echo "$GIMP_ARCH" >&2
-  echo "If you are on Apple Silicon, ensure MacPorts and GIMP.app architectures match." >&2
+fi
+if [[ "$DETECTED_ARCH" != "$HOST_ARCH" ]]; then
+  echo "Warning: GIMP.app architecture ($DETECTED_ARCH) differs from host ($HOST_ARCH)." >&2
+  echo "Ensure MacPorts and GIMP.app architectures match (or use Rosetta)." >&2
 fi
 
 if [[ $SKIP_PORTS -eq 0 ]]; then
@@ -101,11 +130,8 @@ if [[ ! -f "${GIMP_HEADERS_DIR}/gimp-3.0/libgimp/gimp.h" ]]; then
   echo "Falling back to GIMP source tarball headers..." >&2
 
   if [[ -z "$GIMP_SRC_VERSION" ]]; then
-    # Try to parse version from GIMP.app
-    GIMP_SRC_VERSION="$("$GIMP_BIN" --version | awk '/version/ {print $NF; exit}')"
-  fi
-  if [[ -z "$GIMP_SRC_VERSION" ]]; then
-    GIMP_SRC_VERSION="3.0.6"
+    # Try to detect version from GIMP.app (headless-safe)
+    GIMP_SRC_VERSION="$(detect_gimp_version)"
   fi
 
   if [[ -z "$GIMP_SRC_URL" ]]; then
@@ -204,10 +230,7 @@ fi
 
 PKGDIR="$WORKDIR/gimpapp-pkgconfig"
 mkdir -p "$PKGDIR"
-GIMP_APP_VERSION="$("$GIMP_BIN" --version | awk '/version/ {print $NF; exit}')"
-if [[ -z "$GIMP_APP_VERSION" ]]; then
-  GIMP_APP_VERSION="3.0.x"
-fi
+GIMP_APP_VERSION="$(detect_gimp_version)"
 
 cat > "$PKGDIR/gimp-3.0.pc" <<EOF_PC
 prefix=${GIMP_APP}/Contents/Resources
@@ -484,7 +507,8 @@ PY
 # Clear quarantine
 xattr -dr com.apple.quarantine "$BUNDLE_DIR" || true
 
-ZIP_PATH="$OUTDIR/gmic_gimp_qt-gimp3-macos-${GMIC_VERSION}-bundled.zip"
+BUILD_ARCH="${DETECTED_ARCH:-$(uname -m)}"
+ZIP_PATH="$OUTDIR/gmic_gimp_qt-gimp3-macos-${GMIC_VERSION}-${BUILD_ARCH}-bundled.zip"
 rm -f "$ZIP_PATH"
 
 ditto -c -k --sequesterRsrc --keepParent "$BUNDLE_DIR" "$ZIP_PATH"
