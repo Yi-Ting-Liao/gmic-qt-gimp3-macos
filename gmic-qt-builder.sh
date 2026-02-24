@@ -345,11 +345,8 @@ python3 "$SCRIPT_DIR/bundle_libs.py" \
   --gimp-app "$GIMP_APP" \
   --macports-prefix "$MACPORTS_PREFIX"
 
-# Clear quarantine
-xattr -dr com.apple.quarantine "$BUNDLE_DIR" || true
-
 BUILD_ARCH="${DETECTED_ARCH:-$(uname -m)}"
-ZIP_PATH="$OUTDIR/gmic_gimp_qt-gimp3-macos-${GMIC_VERSION}-${BUILD_ARCH}-bundled.zip"
+ZIP_PATH="$OUTDIR/gmic-qt-gimp3-macos-${GMIC_VERSION}-${BUILD_ARCH}.zip"
 rm -f "$ZIP_PATH"
 
 ditto -c -k --sequesterRsrc --keepParent "$BUNDLE_DIR" "$ZIP_PATH"

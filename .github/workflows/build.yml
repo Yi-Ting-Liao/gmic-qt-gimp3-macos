@@ -163,7 +163,7 @@ jobs:
               uses: actions/upload-artifact@v4
               with:
                   name: gmic-qt-macos-${{ matrix.arch }}
-                  path: ${{ github.workspace }}/dist/gmic_gimp_qt-gimp3-macos-*-bundled.zip
+                  path: ${{ github.workspace }}/dist/gmic-qt-gimp3-macos-*.zip
                   if-no-files-found: error
 
     # ── Release job ─────────────────────────────────────────────────
@@ -194,33 +194,27 @@ jobs:
               uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ env.GMIC_VERSION }}
-                  name: "G'MIC-Qt ${{ env.GMIC_VERSION }} for GIMP 3 (macOS)"
+                  name: "G'MIC ${{ env.GMIC_VERSION }} — Qt plugin for GIMP 3 (macOS)"
                   body: |
-                      ## G'MIC-Qt ${{ env.GMIC_VERSION }} for GIMP 3 on macOS
+                      ## G'MIC ${{ env.GMIC_VERSION }} — Qt plugin for GIMP 3 on macOS
 
-                      Pre-built plugin bundles for macOS. Download the zip matching your architecture:
+                      Pre-built G'MIC-Qt plugin bundles (based on G'MIC ${{ env.GMIC_VERSION }}) for macOS.
+                      Download the zip matching your architecture:
 
                       - **x86_64** — For Intel Macs (or GIMP.app running under Rosetta)
-                      - **arm64** — For Apple Silicon Macs (M1/M2/M3/M4)
+                      - **arm64**  — For Apple Silicon Macs (M1/M2/M3/M4)
 
                       ### Installation
 
-                      ```bash
-                      # Remove old version (if any)
-                      rm -rf "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt"
-
-                      # Extract the zip
-                      unzip gmic_gimp_qt-gimp3-macos-*.zip -d "$HOME/Library/Application Support/GIMP/3.0/plug-ins"
-
-                      # Make executable
-                      chmod +x "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt/gmic_gimp_qt"
-
-                      # Remove quarantine attribute
-                      xattr -dr com.apple.quarantine "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt"
-
-                      # Clear plugin cache and restart GIMP
-                      rm -f "$HOME/Library/Application Support/GIMP/3.0/pluginrc"
-                      ```
+                      1. Unzip the downloaded file
+                      2. Copy the `gmic_gimp_qt` folder to:
+                         `~/Library/Application Support/GIMP/3.0/plug-ins/`
+                         (In Finder: **Go → Go to Folder…** then paste the path above)
+                      3. Open Terminal and run:
+                         ```
+                         xattr -dr com.apple.quarantine "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt"
+                         ```
+                      4. Restart GIMP
                   files: artifacts/**/*.zip
                   draft: false
                   prerelease: false
