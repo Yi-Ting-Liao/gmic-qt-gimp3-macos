@@ -5,6 +5,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>G'MIC-Qt for GIMP 3 — macOS</title>
+    <script>
+        // Apply stored theme before render to prevent flash
+        (function () {
+            var t = localStorage.getItem('theme');
+            if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+        })();
+    </script>
     <style>
         *,
         *::before,
@@ -542,6 +549,179 @@
                 display: none;
             }
         }
+
+        /* ── Dark mode ── */
+        @media (prefers-color-scheme: dark) {
+            html:not([data-theme="light"]) {
+                --blue: #e87828;
+                --blue-dark: #f09040;
+                --text: #f0e0d0;
+                --text-secondary: #c8a080;
+                --text-light: #806050;
+                --border: #4a2e1e;
+                --bg: #1c1008;
+                --bg-subtle: #231408;
+            }
+        }
+
+        html[data-theme="dark"] {
+            --blue: #e87828;
+            --blue-dark: #f09040;
+            --text: #f0e0d0;
+            --text-secondary: #c8a080;
+            --text-light: #806050;
+            --border: #4a2e1e;
+            --bg: #1c1008;
+            --bg-subtle: #231408;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            html:not([data-theme="light"]) nav {
+                background: rgba(28, 16, 8, 0.92);
+            }
+
+            html:not([data-theme="light"]) .hero-wrapper {
+                background: linear-gradient(180deg, #1c1008 55%, #231408 100%);
+            }
+
+            html:not([data-theme="light"]) .arch-chip {
+                background: #2a1a0c;
+            }
+
+            html:not([data-theme="light"]) .arch-chip.active {
+                background: #3d2010;
+            }
+
+            html:not([data-theme="light"]) code {
+                background: #2e1c0e;
+                color: var(--text);
+            }
+
+            html:not([data-theme="light"]) pre {
+                background: #231408;
+            }
+
+            html:not([data-theme="light"]) .note {
+                background: #3d2010;
+                color: #f0c080;
+            }
+
+            html:not([data-theme="light"]) .copy-btn {
+                background: #2a1a0c;
+                color: var(--text-secondary);
+                border-color: var(--border);
+            }
+
+            html:not([data-theme="light"]) .copy-btn:hover {
+                background: #3d2010;
+            }
+
+            html:not([data-theme="light"]) .copy-btn.copied {
+                background: #0e2e12;
+                color: #6fda8a;
+                border-color: #2e7d40;
+            }
+
+            html:not([data-theme="light"]) footer {
+                background: #1c1008;
+            }
+
+            html:not([data-theme="light"]) .license-card {
+                background: #231408;
+            }
+
+            html:not([data-theme="light"]) .license-card .badge {
+                background: #3d2010;
+            }
+
+            html:not([data-theme="light"]) .dl-error {
+                color: #ff8080;
+            }
+        }
+
+        html[data-theme="dark"] nav {
+            background: rgba(28, 16, 8, 0.92);
+        }
+
+        html[data-theme="dark"] .hero-wrapper {
+            background: linear-gradient(180deg, #1c1008 55%, #231408 100%);
+        }
+
+        html[data-theme="dark"] .arch-chip {
+            background: #2a1a0c;
+        }
+
+        html[data-theme="dark"] .arch-chip.active {
+            background: #3d2010;
+        }
+
+        html[data-theme="dark"] code {
+            background: #2e1c0e;
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] pre {
+            background: #231408;
+        }
+
+        html[data-theme="dark"] .note {
+            background: #3d2010;
+            color: #f0c080;
+        }
+
+        html[data-theme="dark"] .copy-btn {
+            background: #2a1a0c;
+            color: var(--text-secondary);
+            border-color: var(--border);
+        }
+
+        html[data-theme="dark"] .copy-btn:hover {
+            background: #3d2010;
+        }
+
+        html[data-theme="dark"] .copy-btn.copied {
+            background: #0e2e12;
+            color: #6fda8a;
+            border-color: #2e7d40;
+        }
+
+        html[data-theme="dark"] footer {
+            background: #1c1008;
+        }
+
+        html[data-theme="dark"] .license-card {
+            background: #231408;
+        }
+
+        html[data-theme="dark"] .license-card .badge {
+            background: #3d2010;
+        }
+
+        html[data-theme="dark"] .dl-error {
+            color: #ff8080;
+        }
+
+        /* ── Theme toggle button ── */
+        .theme-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            border: 1.5px solid var(--border);
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+            flex-shrink: 0;
+        }
+
+        .theme-toggle:hover {
+            background: var(--bg-subtle);
+            border-color: var(--blue);
+            color: var(--blue);
+        }
     </style>
 </head>
 
@@ -556,6 +736,9 @@
         <span class="spacer"></span>
         <a class="nav-link" href="https://github.com/Yi-Ting-Liao/gmic-qt-gimp3-macos/releases">All Releases</a>
         <a class="nav-link" href="https://github.com/Yi-Ting-Liao/gmic-qt-gimp3-macos">GitHub</a>
+        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <svg id="theme-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"></svg>
+        </button>
     </nav>
 
     <!-- Hero -->
@@ -817,6 +1000,31 @@
         }
 
         init();
+
+        // ── Theme toggle ──
+        const MOON = '<path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278z"/>';
+        const SUN = '<path d="M8 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm0 1a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM8 0a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 0zm0 13a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 13zm8-5a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2a.5.5 0 0 1 .5.5zM3 8a.5.5 0 0 1-.5.5h-2a.5.5 0 0 1 0-1h2A.5.5 0 0 1 3 8zm10.657-5.657a.5.5 0 0 1 0 .707l-1.414 1.415a.5.5 0 1 1-.707-.708l1.414-1.414a.5.5 0 0 1 .707 0zm-9.193 9.193a.5.5 0 0 1 0 .707L3.05 13.657a.5.5 0 0 1-.707-.707l1.414-1.414a.5.5 0 0 1 .707 0zm9.193 2.121a.5.5 0 0 1-.707 0l-1.414-1.414a.5.5 0 0 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .707zM4.464 4.465a.5.5 0 0 1-.707 0L2.343 3.05a.5.5 0 1 1 .707-.707l1.414 1.414a.5.5 0 0 1 0 .708z"/>';
+
+        function getEffectiveTheme() {
+            var stored = document.documentElement.dataset.theme;
+            if (stored) return stored;
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function applyThemeIcon() {
+            var isDark = getEffectiveTheme() === 'dark';
+            document.getElementById('theme-icon').innerHTML = isDark ? SUN : MOON;
+        }
+
+        document.getElementById('theme-toggle').addEventListener('click', function () {
+            var next = getEffectiveTheme() === 'dark' ? 'light' : 'dark';
+            document.documentElement.dataset.theme = next;
+            localStorage.setItem('theme', next);
+            applyThemeIcon();
+        });
+
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyThemeIcon);
+        applyThemeIcon();
 
         // Copy buttons
         document.querySelectorAll('pre').forEach(pre => {
