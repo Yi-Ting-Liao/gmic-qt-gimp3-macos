@@ -550,7 +550,11 @@
             }
         }
 
-        /* ── Dark mode ── */
+        /* ── Dark mode (shared rules) ── */
+        @mixin-dark {
+            /* placeholder — real rules below */
+        }
+
         @media (prefers-color-scheme: dark) {
             html:not([data-theme="light"]) {
                 --blue: #e87828;
@@ -906,8 +910,8 @@
                     </p>
                 </div>
 
-                <div class="license-card" style="border-color:#e8d0bc;">
-                    <span class="badge" style="background:#fdf0e0;">Disclaimer</span>
+                <div class="license-card">
+                    <span class="badge">Disclaimer</span>
                     <h3>About these builds</h3>
                     <p>
                         This site provides <strong>unofficial macOS builds</strong> of G&rsquo;MIC-Qt compiled
