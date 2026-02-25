@@ -194,7 +194,7 @@ jobs:
               uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ env.GMIC_VERSION }}
-                  name: "G'MIC ${{ env.GMIC_VERSION }} — Qt plugin for GIMP 3 (macOS)"
+                  name: "G'MIC ${{ env.GMIC_VERSION }}"
                   body: |
                       ## G'MIC ${{ env.GMIC_VERSION }} — Qt plugin for GIMP 3 on macOS
 
@@ -208,14 +208,14 @@ jobs:
 
                       1. Unzip the downloaded file
                       2. Copy the `gmic_gimp_qt` folder to:
-                        ```
-                        ~/Library/Application Support/GIMP/3.0/plug-ins/
-                        ```
+                         ```
+                         ~/Library/Application Support/GIMP/3.0/plug-ins/
+                         ```
                         (In Finder: **Go → Go to Folder…** then paste the path above)
                       3. Open Terminal and run:
-                        ```
-                        xattr -dr com.apple.quarantine "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt"
-                        ```
+                         ```
+                         xattr -dr com.apple.quarantine "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt"
+                         ```
                       4. Restart GIMP
 
                       ### Source Code & License

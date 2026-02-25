@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>G'MIC-Qt for GIMP 3 — macOS</title>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --blue: #c85f00;
+            --blue-dark: #9a4700;
+            --text: #2c1a0e;
+            --text-secondary: #6b4230;
+            --text-light: #a07060;
+            --border: #e8d0bc;
+            --bg: #fff;
+            --bg-subtle: #fdf6f0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        a {
+            color: var(--blue);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        /* ── Navbar ── */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 56px;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 2rem;
+            gap: 0.6rem;
+            z-index: 100;
+        }
+
+        nav .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        nav .spacer {
+            flex: 1;
+        }
+
+        nav a.nav-link {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            padding: 0.4rem 0.75rem;
+            border-radius: 4px;
+            transition: background 0.15s;
+        }
+
+        nav a.nav-link:hover {
+            background: var(--bg-subtle);
+            text-decoration: none;
+        }
+
+        /* ── Hero wrapper (full viewport) ── */
+        .hero-wrapper {
+            position: relative;
+            min-height: 100svh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(180deg, #fff 55%, #f8f9fa 100%);
+        }
+
+        /* ── Hero content ── */
+        .hero {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 7rem 1.5rem 5rem;
+        }
+
+        .hero-icon {
+            width: 192px;
+            height: 192px;
+            border-radius: 40px;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 24px rgba(180, 80, 0, 0.18);
+        }
+
+        .hero-icon img {
+            width: 192px;
+            height: 192px;
+            border-radius: 40px;
+            object-fit: cover;
+        }
+
+        .hero h1 {
+            font-size: clamp(2rem, 5vw, 3.2rem);
+            font-weight: 400;
+            color: var(--text);
+            letter-spacing: -0.5px;
+            margin-bottom: 1rem;
+        }
+
+        .hero h1 span {
+            color: var(--blue);
+            font-weight: 600;
+        }
+
+        .hero .tagline {
+            font-size: clamp(1rem, 2vw, 1.15rem);
+            color: var(--text-secondary);
+            max-width: 460px;
+            margin-bottom: 2.5rem;
+        }
+
+        /* Primary download button */
+        .btn-download {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.85rem 2rem;
+            background: var(--blue);
+            color: #fff;
+            border-radius: 100px;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: background 0.15s, box-shadow 0.15s;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(180, 80, 0, 0.28);
+            cursor: pointer;
+        }
+
+        .btn-download:hover {
+            background: var(--blue-dark);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14), 0 4px 16px rgba(26, 115, 232, 0.28);
+            text-decoration: none;
+        }
+
+        .btn-download.loading {
+            opacity: 0.65;
+            pointer-events: none;
+        }
+
+        /* Meta row below button */
+        .download-meta {
+            margin-top: 0.9rem;
+            font-size: 0.85rem;
+            color: var(--text-light);
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .download-meta .dot {
+            opacity: 0.35;
+        }
+
+        /* Arch chips */
+        .arch-switch {
+            display: flex;
+            gap: 0.65rem;
+            margin-top: 0.9rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .arch-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.3rem 0.85rem;
+            border: 1.5px solid var(--border);
+            border-radius: 100px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            background: #fff;
+            transition: border-color 0.15s, color 0.15s, background 0.15s;
+        }
+
+        .arch-chip:hover {
+            border-color: var(--blue);
+            color: var(--blue);
+            text-decoration: none;
+        }
+
+        .arch-chip.active {
+            border-color: var(--blue);
+            color: var(--blue);
+            background: #fff4e6;
+            font-weight: 600;
+        }
+
+        .arch-chip .ck {
+            opacity: 0;
+        }
+
+        .arch-chip.active .ck {
+            opacity: 1;
+        }
+
+        .dl-error {
+            display: none;
+            margin-top: 0.75rem;
+            font-size: 0.85rem;
+            color: #c5221f;
+        }
+
+        .hero-disclaimer {
+            margin-top: 1.25rem;
+            font-size: 0.78rem;
+            color: var(--text-light);
+            max-width: 440px;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        /* Scroll hint */
+        .scroll-hint {
+            position: absolute;
+            bottom: 1.75rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.3rem;
+            color: var(--text-light);
+            font-size: 0.78rem;
+            animation: bob 2.2s ease-in-out infinite;
+        }
+
+        .scroll-hint svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        @keyframes bob {
+
+            0%,
+            100% {
+                transform: translateX(-50%) translateY(0);
+            }
+
+            50% {
+                transform: translateX(-50%) translateY(7px);
+            }
+        }
+
+        /* ── Installation section ── */
+        .install {
+            background: var(--bg-subtle);
+            border-top: 1px solid var(--border);
+            padding: 5.5rem 1.5rem 5rem;
+        }
+
+        .install-inner {
+            max-width: 680px;
+            margin: 0 auto;
+        }
+
+        .section-eyebrow {
+            font-size: 0.78rem;
+            font-weight: 600;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            color: var(--blue);
+            margin-bottom: 0.6rem;
+        }
+
+        .install h2 {
+            font-size: clamp(1.6rem, 3vw, 2rem);
+            font-weight: 400;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+        }
+
+        .install .sub {
+            color: var(--text-secondary);
+            margin-bottom: 3rem;
+            font-size: 0.95rem;
+        }
+
+        /* Steps */
+        .steps {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .step {
+            display: flex;
+            gap: 1.5rem;
+            padding-bottom: 2.5rem;
+            position: relative;
+        }
+
+        .step:not(:last-child)::before {
+            content: '';
+            position: absolute;
+            left: 19px;
+            top: 40px;
+            bottom: 0;
+            width: 2px;
+            background: var(--border);
+        }
+
+        .step-num {
+            flex-shrink: 0;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--blue);
+            color: #fff;
+            font-size: 0.9rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .step-body {
+            flex: 1;
+            min-width: 0;
+            padding-top: 0.55rem;
+        }
+
+        .step-body h3 {
+            font-size: 0.975rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.4rem;
+        }
+
+        .step-body p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        code {
+            font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+            font-size: 0.84em;
+            background: #e8eaed;
+            border-radius: 4px;
+            padding: 0.12em 0.42em;
+            color: var(--text);
+        }
+
+        pre {
+            background: #f1f3f4;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.9rem 1.1rem;
+            overflow-x: auto;
+            margin: 0.55rem 0;
+            scrollbar-width: none;
+            /* Firefox */
+        }
+
+        pre::-webkit-scrollbar {
+            display: none;
+            /* Chrome / Safari */
+        }
+
+        /* Copy button */
+        .pre-wrap {
+            position: relative;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 50%;
+            right: 0.5rem;
+            transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.22rem 0.6rem;
+            font-size: 0.75rem;
+            font-family: inherit;
+            font-weight: 500;
+            color: var(--text-secondary);
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+            line-height: 1.5;
+        }
+
+        .copy-btn:hover {
+            color: var(--blue);
+            border-color: var(--blue);
+            background: #fff4e6;
+        }
+
+        .copy-btn.copied {
+            color: #188038;
+            border-color: #34a853;
+            background: #e6f4ea;
+        }
+
+        pre code {
+            background: none;
+            border: none;
+            padding: 0;
+            font-size: 0.83rem;
+            color: var(--text);
+        }
+
+        .note {
+            background: #fff4e6;
+            border-left: 3px solid var(--blue);
+            border-radius: 0 8px 8px 0;
+            padding: 0.7rem 1rem;
+            font-size: 0.85rem;
+            color: #7a3500;
+            margin-top: 0.75rem;
+        }
+
+        /* ── Footer ── */
+        footer {
+            background: #fff;
+            border-top: 1px solid var(--border);
+            padding: 1.75rem 1.5rem;
+            display: flex;
+            gap: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            font-size: 0.85rem;
+        }
+
+        footer a {
+            color: var(--text-secondary);
+        }
+
+        footer a:hover {
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        /* ── License section ── */
+        .license {
+            background: var(--bg-subtle);
+            padding: 5rem 1.5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .license-inner {
+            max-width: 680px;
+            margin: 0 auto;
+        }
+
+        .license h2 {
+            font-size: clamp(1.6rem, 3vw, 2rem);
+            font-weight: 400;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+        }
+
+        .license .sub {
+            color: var(--text-secondary);
+            margin-bottom: 2.5rem;
+            font-size: 0.95rem;
+        }
+
+        .license-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .license-card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem 1.5rem;
+        }
+
+        .license-card h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.35rem;
+        }
+
+        .license-card p {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .license-card .badge {
+            display: inline-block;
+            background: #fff4e6;
+            color: var(--blue);
+            font-size: 0.78rem;
+            font-weight: 600;
+            border-radius: 100px;
+            padding: 0.18em 0.75em;
+            margin-bottom: 0.55rem;
+        }
+
+        @media (max-width: 480px) {
+            nav .nav-link {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Navbar -->
+    <nav>
+        <a class="logo" href="#">
+            <img src="icon.png" width="28" height="28" style="border-radius:6px;object-fit:cover;" alt="G'MIC icon" />
+            G&rsquo;MIC-Qt for GIMP 3
+        </a>
+        <span class="spacer"></span>
+        <a class="nav-link" href="https://github.com/Yi-Ting-Liao/gmic-qt-gimp3-macos/releases">All Releases</a>
+        <a class="nav-link" href="https://github.com/Yi-Ting-Liao/gmic-qt-gimp3-macos">GitHub</a>
+    </nav>
+
+    <!-- Hero -->
+    <div class="hero-wrapper">
+        <div class="hero">
+
+            <div class="hero-icon" aria-hidden="true">
+                <img src="icon.png" alt="G'MIC icon" />
+            </div>
+
+            <h1>G&rsquo;MIC-Qt for <span>GIMP&nbsp;3</span></h1>
+            <p class="tagline">A powerful image&ndash;processing plugin for GIMP&nbsp;3 on macOS &mdash; 500+ filters,
+                fully bundled.</p>
+
+            <a id="dl-btn" class="btn-download loading" href="#" download>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M10 13.5L5.5 9h3V4h3v5h3L10 13.5z" />
+                    <path d="M4 15.5h12V17H4z" />
+                </svg>
+                <span id="dl-text">Loading&hellip;</span>
+            </a>
+
+            <div class="download-meta">
+                <span>macOS</span>
+                <span class="dot">&middot;</span>
+                <span id="meta-version">&mdash;</span>
+                <span class="dot">&middot;</span>
+                <span id="meta-size">&mdash;</span>
+            </div>
+
+            <div class="arch-switch">
+                <a class="arch-chip" id="chip-arm64" href="#" onclick="selectArch('arm64');return false;">
+                    <span class="ck">&#10003;&nbsp;</span>arm64 <small style="opacity:.55;margin-left:.2rem">Apple
+                        Silicon</small>
+                </a>
+                <a class="arch-chip" id="chip-x86_64" href="#" onclick="selectArch('x86_64');return false;">
+                    <span class="ck">&#10003;&nbsp;</span>x86_64 <small
+                        style="opacity:.55;margin-left:.2rem">Intel</small>
+                </a>
+            </div>
+
+            <p class="dl-error" id="dl-error">
+                Could not load release info. &nbsp;<a
+                    href="https://github.com/Yi-Ting-Liao/gmic-qt-gimp3-macos/releases/latest">Go to GitHub Releases
+                    &rarr;</a>
+            </p>
+
+            <p class="hero-disclaimer">
+                macOS 10.15 or later only &nbsp;&middot;&nbsp;
+                Unofficial community build &mdash; not affiliated with the
+                <a href="https://gmic.eu/">G&rsquo;MIC</a> or
+                <a href="https://www.gimp.org/">GIMP</a> projects.
+            </p>
+
+        </div>
+
+        <div class="scroll-hint" aria-hidden="true">
+            <span>Installation</span>
+            <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M4 7l5 5 5-5" />
+            </svg>
+        </div>
+    </div>
+
+    <!-- Installation -->
+    <section class="install" id="install">
+        <div class="install-inner">
+            <p class="section-eyebrow">How to install</p>
+            <h2>Get started in minutes</h2>
+            <p class="sub">G&rsquo;MIC-Qt is a self-contained bundle &mdash; no MacPorts or Homebrew needed on your Mac.
+            </p>
+
+            <div class="steps">
+
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <div class="step-body">
+                        <h3>Download &amp; unzip</h3>
+                        <p>Click the download button above and unzip the file. You&rsquo;ll get a folder named
+                            <code>gmic_gimp_qt</code>.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <div class="step-body">
+                        <h3>Copy to the GIMP plug-ins folder</h3>
+                        <p>Move <code>gmic_gimp_qt</code> to:</p>
+                        <pre><code>~/Library/Application Support/GIMP/3.0/plug-ins/</code></pre>
+                        <p>In Finder: <strong>Go &rarr; Go to Folder&hellip;</strong> and paste the path above.</p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <div class="step-body">
+                        <h3>Remove the quarantine flag</h3>
+                        <p>macOS marks downloaded files as quarantined. Open Terminal and run:</p>
+                        <pre><code>xattr -dr com.apple.quarantine "$HOME/Library/Application Support/GIMP/3.0/plug-ins/gmic_gimp_qt"</code></pre>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-num">4</div>
+                    <div class="step-body">
+                        <h3>Restart GIMP</h3>
+                        <p>G&rsquo;MIC will appear under <strong>Filters &rarr; G&rsquo;MIC-Qt&hellip;</strong> in GIMP.
+                        </p>
+                        <div class="note">
+                            If G&rsquo;MIC doesn&rsquo;t appear, clear the plug-in cache and restart GIMP:<br />
+                            <code>rm -f "$HOME/Library/Application Support/GIMP/3.0/pluginrc"</code>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /steps -->
+        </div>
+    </section>
+
+    <!-- License -->
+    <section class="license" id="license">
+        <div class="license-inner">
+            <p class="section-eyebrow">Open source</p>
+            <h2>License</h2>
+            <p class="sub">
+                This project distributes binaries built from free and open-source software.
+                The following licenses apply to the respective components.
+            </p>
+
+            <div class="license-cards">
+
+                <div class="license-card">
+                    <span class="badge">GPL-3.0</span>
+                    <h3>G&rsquo;MIC-Qt (the plug-in)</h3>
+                    <p>
+                        The G&rsquo;MIC-Qt plug-in &mdash; including the binary distributed here &mdash; is
+                        free software licensed under the
+                        <a href="https://www.gnu.org/licenses/gpl-3.0.html">GNU General Public License v3.0</a>.
+                        You are free to use, modify, and redistribute it under the same license.
+                        A copy of the license (<code>COPYING</code>) is included inside every zip archive.
+                        Source code: <a href="https://github.com/GreycLab/gmic-qt">github.com/GreycLab/gmic-qt</a>.
+                    </p>
+                </div>
+
+                <div class="license-card">
+                    <span class="badge">CeCILL</span>
+                    <h3>G&rsquo;MIC core library</h3>
+                    <p>
+                        The G&rsquo;MIC core image-processing library is licensed under the
+                        <a href="https://cecill.info/licences/Licence_CeCILL_V2.1-en.html">CeCILL v2.1</a> license,
+                        a GPL-compatible free software license governed by French law.
+                        Source code: <a href="https://github.com/GreycLab/gmic">github.com/GreycLab/gmic</a>.
+                    </p>
+                </div>
+
+                <div class="license-card">
+                    <span class="badge">MIT</span>
+                    <h3>Build scripts (this repository)</h3>
+                    <p>
+                        The build scripts and CI configuration in this repository are released under the
+                        <a href="https://opensource.org/licenses/MIT">MIT License</a>.
+                        Source: <a
+                            href="https://github.com/Yi-Ting-Liao/gmic-qt-gimp3-macos">github.com/Yi-Ting-Liao/gmic-qt-gimp3-macos</a>.
+                    </p>
+                </div>
+
+                <div class="license-card" style="border-color:#e8d0bc;">
+                    <span class="badge" style="background:#fdf0e0;">Disclaimer</span>
+                    <h3>About these builds</h3>
+                    <p>
+                        This site provides <strong>unofficial macOS builds</strong> of G&rsquo;MIC-Qt compiled
+                        and packaged by <a href="https://github.com/Yi-Ting-Liao">Yi-Ting Liao</a> from
+                        publicly available source code. These builds are <strong>not affiliated with, endorsed
+                            by, or supported by</strong> the G&rsquo;MIC team (GREYC/CNRS) or the GIMP project.
+                        The maintainer is responsible only for the build and packaging process, not for the
+                        upstream software itself. For the official G&rsquo;MIC project, visit
+                        <a href="https://gmic.eu/">gmic.eu</a>.
+                    </p>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <a href="https://github.com/Yi-Ting-Liao/gmic-qt-gimp3-macos">GitHub</a>
+        <a href="https://github.com/Yi-Ting-Liao/gmic-qt-gimp3-macos/releases">All Releases</a>
+        <a href="https://gmic.eu/">G&rsquo;MIC</a>
+        <a href="https://www.gimp.org/">GIMP</a>
+        <a href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0 License</a>
+    </footer>
+
+    <script>
+        const REPO = 'Yi-Ting-Liao/gmic-qt-gimp3-macos';
+        let release = null;
+
+        async function detectArch() {
+            if (navigator.userAgentData) {
+                try {
+                    const d = await navigator.userAgentData.getHighEntropyValues(['architecture']);
+                    if (d.architecture === 'arm') return 'arm64';
+                    if (d.architecture === 'x86' || d.architecture === 'x86_64') return 'x86_64';
+                } catch (e) { }
+            }
+            return 'arm64'; // safe default for modern Macs
+        }
+
+        function fmtSize(b) { return b ? (b / 1048576).toFixed(1) + ' MB' : ''; }
+
+        function selectArch(arch) {
+            if (!release) return;
+            const asset = release.assets.find(a => a.name.includes(arch) && a.name.endsWith('.zip'));
+            const btn = document.getElementById('dl-btn');
+            const txt = document.getElementById('dl-text');
+            const ver = (release.tag_name || '').replace(/^v/, '');
+
+            document.getElementById('meta-version').textContent = 'v' + ver;
+
+            if (asset) {
+                btn.href = asset.browser_download_url;
+                btn.setAttribute('download', asset.name);
+                btn.classList.remove('loading');
+                txt.textContent = 'Download for macOS (' + (arch === 'arm64' ? 'Apple Silicon' : 'Intel') + ')';
+                document.getElementById('meta-size').textContent = fmtSize(asset.size);
+            } else {
+                btn.href = 'https://github.com/' + REPO + '/releases/latest';
+                btn.removeAttribute('download');
+                btn.classList.remove('loading');
+                txt.textContent = 'View Latest Release';
+                document.getElementById('meta-size').textContent = '';
+            }
+
+            ['arm64', 'x86_64'].forEach(a =>
+                document.getElementById('chip-' + a).classList.toggle('active', a === arch)
+            );
+        }
+
+        async function init() {
+            const arch = await detectArch();
+            ['arm64', 'x86_64'].forEach(a =>
+                document.getElementById('chip-' + a).classList.toggle('active', a === arch)
+            );
+
+            try {
+                const res = await fetch('https://api.github.com/repos/' + REPO + '/releases/latest',
+                    { headers: { Accept: 'application/vnd.github+json' } });
+                if (!res.ok) throw new Error(res.status);
+                release = await res.json();
+                selectArch(arch);
+            } catch (e) {
+                const btn = document.getElementById('dl-btn');
+                btn.href = 'https://github.com/' + REPO + '/releases/latest';
+                btn.removeAttribute('download');
+                btn.classList.remove('loading');
+                document.getElementById('dl-text').textContent = 'Download Latest Release';
+                document.getElementById('dl-error').style.display = 'block';
+            }
+        }
+
+        init();
+
+        // Copy buttons
+        document.querySelectorAll('pre').forEach(pre => {
+            const wrap = document.createElement('div');
+            wrap.className = 'pre-wrap';
+            pre.parentNode.insertBefore(wrap, pre);
+            wrap.appendChild(pre);
+
+            const btn = document.createElement('button');
+            btn.className = 'copy-btn';
+            btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H6z"/><path d="M2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h7v-1H2V6H1V5h1z"/></svg>Copy';
+            btn.addEventListener('click', () => {
+                const text = pre.querySelector('code').innerText;
+                navigator.clipboard.writeText(text).then(() => {
+                    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 1 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0z"/></svg>Copied!';
+                    btn.classList.add('copied');
+                    setTimeout(() => {
+                        btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H6z"/><path d="M2 5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h7v-1H2V6H1V5h1z"/></svg>Copy';
+                        btn.classList.remove('copied');
+                    }, 2000);
+                });
+            });
+            wrap.appendChild(btn);
+        });
+    </script>
+</body>
+
+</html>
